@@ -1,0 +1,7 @@
+/target
+*.zip
+Photos-001
+*.bsdesign
+*.jpg
+*.json
+.env
