@@ -214,13 +214,31 @@ async fn main() -> Result<()> {
         )?;
     }
 
-    // let results = db.query("little sack")?;
-    // for result in results {
-    //     println!(
-    //         "name: {}\ndescription: {}\n",
-    //         result.name, result.description
-    //     );
-    // }
+    let results = db.query("a secret plane")?;
+    for result in results {
+        let containers: Vec<String> = result
+            .containers
+            .into_iter()
+            .map(|(n, l)| {
+                if let Some(loc) = l {
+                    if !loc.is_empty() {
+                        format!("{} ({})", n, loc)
+                    } else {
+                        n
+                    }
+                } else {
+                    n
+                }
+            })
+            .collect();
+        println!(
+            "name: {}\ndescription: {}\nscore: {}\ncontainers: {}\n",
+            result.name,
+            result.description,
+            result.similarity,
+            containers.join(" -> ")
+        );
+    }
 
     Ok(())
 }
