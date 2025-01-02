@@ -1,6 +1,6 @@
-use std::{io::Read, path::Path};
+use std::io::Read;
 
-use anyhow::{bail, Ok, Result};
+use anyhow::Result;
 use async_openai::types::{
     ChatCompletionRequestMessageContentPartImageArgs,
     ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestSystemMessage,
@@ -8,18 +8,19 @@ use async_openai::types::{
     ResponseFormat, ResponseFormatJsonSchema,
 };
 use clap::Parser;
-use log::{error, info};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+mod database;
 
 /// Ingest multiple photos of items, get descriptions of them, and downscale image
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Path to ingest root
-    #[arg(short, long)]
-    ingest: String,
-
+    // /// Path to ingest root
+    // #[arg(short, long)]
+    // ingest: String,
     /// Path to zip file of photos
     #[arg(short, long)]
     zip: String,
@@ -32,7 +33,15 @@ struct ItemInfo {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-struct AllItems(Vec<ItemInfo>);
+struct ItemRecord {
+    name: String,
+    description: String,
+    full_photo: Vec<u8>,
+    resized_photo: Vec<u8>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AllItems(Vec<ItemRecord>);
 
 async fn get_description(
     client: &async_openai::Client<async_openai::config::OpenAIConfig>,
@@ -67,7 +76,7 @@ async fn get_description(
     };
 
     let  request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4o")
+        .model("gpt-4o-mini")
         .max_tokens(600_u32)
         .messages([ChatCompletionRequestSystemMessage::from(
             "You are a helpful item identifier and describer. You always respond in valid JSON.",
@@ -119,16 +128,23 @@ fn calculate_new_dimensions(width: u32, height: u32, max_dimension: u32) -> (u32
     }
 }
 
-fn downscale_image_and_save(photo: &[u8], path: &Path) {
+fn downscale_image(photo: &[u8], max_dim: u32) -> Vec<u8> {
     let image = image::load_from_memory(photo).unwrap();
 
     // Resize image
     let (width, height) = (image.width(), image.height());
-    let (new_width, new_height) = calculate_new_dimensions(width, height, 1024);
+    let (new_width, new_height) = calculate_new_dimensions(width, height, max_dim);
     let resized_img =
         image.resize_exact(new_width, new_height, image::imageops::FilterType::Triangle);
 
-    resized_img.save(path).unwrap();
+    let mut data = Vec::new();
+    resized_img
+        .write_to(
+            &mut std::io::Cursor::new(&mut data),
+            image::ImageFormat::Jpeg,
+        )
+        .unwrap();
+    data
 }
 
 fn render_template(tera: &tera::Tera, photo_name: &str, item: &ItemInfo) -> String {
@@ -156,19 +172,12 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // Check that ingest path has expected folders
-    let ingest_path = std::path::Path::new(&args.ingest);
-    let markdown_path = ingest_path.join("markdown");
-    let photo_path = ingest_path.join("photos");
-
-    if !markdown_path.exists() || !photo_path.exists() {
-        bail!("Not correct ingest path");
-    }
-
     // Setup tera templates
     let mut tera = tera::Tera::default();
     tera.add_raw_template("item.md", include_str!("item_template.md"))
         .unwrap();
+
+    let db = database::Database::init()?;
 
     // open zip archive
     let zip_fname = std::path::Path::new(&args.zip);
@@ -179,12 +188,10 @@ async fn main() -> Result<()> {
     // OpenAI Client
     let client = async_openai::Client::new();
 
-    // let mut all_items = Vec::new();
     for i in 0..archive.len() {
         info!("Processing {} of {}", i + 1, archive.len());
 
         let photo = archive.by_index(i)?;
-        let photo_name = photo.name().to_string();
         let photo_data: Vec<u8> = photo.bytes().map(|b| b.unwrap()).collect();
         let photo_b64 = base64::display::Base64Display::new(
             &photo_data,
@@ -192,30 +199,28 @@ async fn main() -> Result<()> {
         )
         .to_string();
 
-        let item_info = get_description(&client, &photo_b64).await.unwrap();
-        // dbg!(item_info);
-        // all_items.push(item_info);
+        let client = client.clone();
+        let item_info =
+            tokio::spawn(async move { get_description(&client, &photo_b64).await.unwrap() });
+        let photo_resized_large = downscale_image(&photo_data, 1024);
+        let photo_resized_small = downscale_image(&photo_data, 128);
+        let item_info = item_info.await?;
 
-        let markdown_name = markdown_path.join(format!(
-            "{} {}",
-            item_info.name,
-            photo_name.replace(".jpg", ".md")
-        ));
-
-        let photo_name = format!("{}_{}", &item_info.name.replace(" ", "_"), &photo_name);
-        let photo_path = photo_path.join(&photo_name);
-        downscale_image_and_save(&photo_data, &photo_path);
-
-        let contents = render_template(&tera, &photo_name, &item_info);
-
-        std::fs::write(&markdown_name, contents).unwrap();
+        db.insert_item(
+            &item_info.name,
+            &item_info.description,
+            &photo_resized_small,
+            &photo_resized_large,
+        )?;
     }
 
-    // std::fs::write(
-    //     "testing.json",
-    //     serde_json::to_string_pretty(&all_items).unwrap(),
-    // )
-    // .unwrap();
+    // let results = db.query("little sack")?;
+    // for result in results {
+    //     println!(
+    //         "name: {}\ndescription: {}\n",
+    //         result.name, result.description
+    //     );
+    // }
 
     Ok(())
 }

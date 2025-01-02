@@ -10,10 +10,14 @@ base64 = "0.22.1"
 clap = { version = "4.5.23", features = ["derive"] }
 dotenvy = "0.15.7"
 env_logger = "0.11.6"
+fastembed = "4.3.0"
 image = "0.25.5"
 log = "0.4.22"
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.134"
+sqlite-vec = "0.1.6"
 tera = "1.20.0"
 tokio = { version = "1.42.0", features = ["full"] }
+zerocopy = "0.8.14"
 zip = "2.2.2"

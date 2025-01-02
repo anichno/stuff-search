@@ -5,3 +5,5 @@ Photos-001
 *.jpg
 *.json
 .env
+.fastembed_cache
+storage.db
