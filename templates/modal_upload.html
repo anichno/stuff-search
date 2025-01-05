@@ -1,0 +1,44 @@
+<div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h4 class="modal-title">Upload</h4><button class="btn-close" type="button" aria-label="Close"
+                data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+            <div class="card">
+                <div class="card-body text-center d-flex flex-column align-items-center">
+                    <form id="upload-form" class="needs-validation" method="post" novalidate="">
+                        <div class="mb-3"><input class="form-control" type="file" required=""></div>
+                        <div class="mb-3"><input class="form-control" type="text" name="target-container"
+                                placeholder="Container" required=""></div>
+                        <div class="mb-3"><button class="btn btn-primary disabled shadow d-block w-100" type="submit"
+                                disabled="">Upload</button></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <script>
+            const form = document.getElementById('upload-form');
+            const submitButton = form.querySelector('button[type="submit"]');
+            const inputs = form.querySelectorAll('input[required]');
+
+            inputs.forEach(input => {
+                input.addEventListener('input', checkForm);
+                if (input.type === 'file') {
+                    input.addEventListener('change', checkForm);
+                }
+            });
+
+            function checkForm() {
+                const allFilled = Array.from(inputs).every(input => {
+                    if (input.type === 'file') {
+                        return input.files.length > 0;
+                    }
+                    return input.value.trim() !== '';
+                });
+                submitButton.classList.toggle('disabled', !allFilled);
+                submitButton.disabled = !allFilled;
+            }
+        </script>
+    </div>
+</div>

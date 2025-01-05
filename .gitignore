@@ -7,3 +7,5 @@ Photos-001
 .env
 .fastembed_cache
 *.db
+*.bak
+bootstrap_studio_generated/

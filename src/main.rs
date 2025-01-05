@@ -1,244 +1,243 @@
-use std::io::Read;
+use std::{
+    fmt::Write,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
-use async_openai::types::{
-    ChatCompletionRequestMessageContentPartImageArgs,
-    ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestSystemMessage,
-    ChatCompletionRequestUserMessageArgs, CreateChatCompletionRequestArgs, ImageUrlArgs,
-    ResponseFormat, ResponseFormatJsonSchema,
+use axum::{
+    body::Bytes,
+    extract::{Multipart, Path, State},
+    http::StatusCode,
+    response::{Html, Response},
+    routing::{get, post},
+    Router,
 };
-use clap::Parser;
-use log::{debug, error, info};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use clap::builder::Str;
+use tera::Tera;
+use tracing::{debug, error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod database;
+mod import;
 
-/// Ingest multiple photos of items, get descriptions of them, and downscale image
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Args {
-    // /// Path to ingest root
-    // #[arg(short, long)]
-    // ingest: String,
-    /// Path to zip file of photos
-    #[arg(short, long)]
-    zip: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct ItemInfo {
-    name: String,
-    description: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct ItemRecord {
-    name: String,
-    description: String,
-    full_photo: Vec<u8>,
-    resized_photo: Vec<u8>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct AllItems(Vec<ItemRecord>);
-
-async fn get_description(
-    client: &async_openai::Client<async_openai::config::OpenAIConfig>,
-    photo_b64: &str,
-) -> Result<ItemInfo> {
-    let schema = json!({
-        "type": "object",
-        "properties": {
-        "name": {
-            "type": "string",
-            "description": "The name of the object."
-        },
-        "description": {
-            "type": "string",
-            "description": "A brief description of what the object is."
-        }
-        },
-        "required": [
-        "name",
-        "description"
-        ],
-        "additionalProperties": false
-    });
-
-    let response_format = ResponseFormat::JsonSchema {
-        json_schema: ResponseFormatJsonSchema {
-            description: None,
-            name: "Item_description".into(),
-            schema: Some(schema),
-            strict: Some(true),
-        },
+lazy_static::lazy_static! {
+    pub static ref TEMPLATES: Tera = {
+        let tera = match Tera::new("templates/*") {
+            Ok(t) => t,
+            Err(e) => {
+                println!("Parsing error(s): {}", e);
+                ::std::process::exit(1);
+            }
+        };
+        tera
     };
-
-    let  request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4o-mini")
-        .max_tokens(600_u32)
-        .messages([ChatCompletionRequestSystemMessage::from(
-            "You are a helpful item identifier and describer. You always respond in valid JSON.",
-        )
-        .into(),
-        ChatCompletionRequestUserMessageArgs::default()
-            .content(vec![
-                ChatCompletionRequestMessageContentPartTextArgs::default()
-                    .text("Please give a short name for this object.")
-                    .build()?
-                    .into(),
-                ChatCompletionRequestMessageContentPartTextArgs::default()
-                    .text("Please give a full description of what you see in this image. Do not mention the background or any human hands.")
-                    .build()?
-                    .into(),
-                ChatCompletionRequestMessageContentPartImageArgs::default()
-                    .image_url(
-                        ImageUrlArgs::default()
-                            .url(format!("data:image/jpeg;base64,{}",photo_b64))
-                            .detail(async_openai::types::ImageDetail::High)
-                            .build()?,
-                    )
-                    .build()?
-                    .into(),
-            ])
-            .build()?
-            .into()]).response_format(response_format)
-        .build()?;
-
-    let response = client.chat().create(request).await?;
-
-    let item_info: ItemInfo =
-        serde_json::from_str(&response.choices[0].message.content.clone().unwrap())?;
-
-    Ok(item_info)
 }
 
-fn calculate_new_dimensions(width: u32, height: u32, max_dimension: u32) -> (u32, u32) {
-    if width > height {
-        // Landscape orientation or square
-        let new_width = max_dimension;
-        let new_height = (max_dimension as f64 * height as f64 / width as f64).round() as u32;
-        (new_width, new_height)
-    } else {
-        // Portrait orientation
-        let new_height = max_dimension;
-        let new_width = (max_dimension as f64 * width as f64 / height as f64).round() as u32;
-        (new_width, new_height)
-    }
+struct AppState {
+    database: Arc<Mutex<database::Database>>,
+    importer: Arc<Mutex<import::Importer>>,
 }
 
-fn downscale_image(photo: &[u8], max_dim: u32) -> Vec<u8> {
-    let image = image::load_from_memory(photo).unwrap();
+// /// Ingest multiple photos of items, get descriptions of them, and downscale image
+// #[derive(Parser, Debug)]
+// #[command(version, about, long_about = None)]
+// struct Args {
+//     // /// Path to ingest root
+//     // #[arg(short, long)]
+//     // ingest: String,
+//     /// Path to zip file of photos
+//     #[arg(short, long)]
+//     zip: String,
+// }
 
-    // Resize image
-    let (width, height) = (image.width(), image.height());
-    let (new_width, new_height) = calculate_new_dimensions(width, height, max_dim);
-    let resized_img =
-        image.resize_exact(new_width, new_height, image::imageops::FilterType::Triangle);
+// fn render_template(tera: &tera::Tera, photo_name: &str, item: &ItemInfo) -> String {
+//     #[derive(Debug, Serialize)]
+//     struct ItemContext {
+//         photo_name: String,
+//         name: String,
+//         description: String,
+//     }
 
-    let mut data = Vec::new();
-    resized_img
-        .write_to(
-            &mut std::io::Cursor::new(&mut data),
-            image::ImageFormat::Jpeg,
-        )
-        .unwrap();
-    data
-}
+//     let context = ItemContext {
+//         photo_name: photo_name.to_string(),
+//         name: item.name.clone(),
+//         description: item.description.clone(),
+//     };
 
-fn render_template(tera: &tera::Tera, photo_name: &str, item: &ItemInfo) -> String {
-    #[derive(Debug, Serialize)]
-    struct ItemContext {
-        photo_name: String,
-        name: String,
-        description: String,
-    }
-
-    let context = ItemContext {
-        photo_name: photo_name.to_string(),
-        name: item.name.clone(),
-        description: item.description.clone(),
-    };
-
-    tera.render("item.md", &tera::Context::from_serialize(&context).unwrap())
-        .unwrap()
-}
+//     tera.render("item.md", &tera::Context::from_serialize(&context).unwrap())
+//         .unwrap()
+// }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv()?;
-    env_logger::init();
 
-    let args = Args::parse();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    // let args = Args::parse();
 
     // Setup tera templates
     let mut tera = tera::Tera::default();
     tera.add_raw_template("item.md", include_str!("item_template.md"))
         .unwrap();
 
-    let db = database::Database::init()?;
+    let db = Arc::new(Mutex::new(database::Database::init()?));
+    let importer = Arc::new(Mutex::new(import::Importer::new(db.clone()).await));
+    let shared_state = Arc::new(AppState {
+        database: db,
+        importer,
+    });
 
-    // open zip archive
-    let zip_fname = std::path::Path::new(&args.zip);
-    let zip_file = std::fs::File::open(zip_fname).unwrap();
+    // let zip_file = std::fs::read("Photos-001/20241230_192801.jpg")?;
+    // importer.lock().unwrap().add_to_queue(ImportRequest {
+    //     source: "testing".to_string(),
+    //     file: zip_file,
+    //     target_container: 1,
+    // })?;
 
-    let mut archive = zip::ZipArchive::new(zip_file).unwrap();
+    // loop {
+    //     std::thread::sleep(std::time::Duration::from_secs(1));
+    // }
 
-    // OpenAI Client
-    let client = async_openai::Client::new();
+    let app = Router::new()
+        .route("/", get(serve_index))
+        .route("/page/search", get(serve_search))
+        .route("/page/containers", get(serve_containers))
+        .route("/modal_upload", get(serve_modal_upload))
+        .route("/search", post(search))
+        .route("/containers", get(container_tree))
+        .route("/container/{id}/items", get(get_container_items))
+        // .route("/upload", post(upload))
+        .route("/images/small/{id}/small.jpg", get(small_photo))
+        .route("/images/large/{id}/large.jpg", get(large_photo))
+        .with_state(Arc::clone(&shared_state))
+        .nest_service("/assets", tower_http::services::ServeDir::new("assets"));
 
-    for i in 0..archive.len() {
-        info!("Processing {} of {}", i + 1, archive.len());
-
-        let photo = archive.by_index(i)?;
-        let photo_data: Vec<u8> = photo.bytes().map(|b| b.unwrap()).collect();
-        let photo_b64 = base64::display::Base64Display::new(
-            &photo_data,
-            &base64::engine::general_purpose::STANDARD,
-        )
-        .to_string();
-
-        let client = client.clone();
-        let item_info =
-            tokio::spawn(async move { get_description(&client, &photo_b64).await.unwrap() });
-        let photo_resized_large = downscale_image(&photo_data, 1024);
-        let photo_resized_small = downscale_image(&photo_data, 128);
-        let item_info = item_info.await?;
-
-        db.insert_item(
-            &item_info.name,
-            &item_info.description,
-            &photo_resized_small,
-            &photo_resized_large,
-        )?;
-    }
-
-    let results = db.query("a secret plane")?;
-    for result in results {
-        let containers: Vec<String> = result
-            .containers
-            .into_iter()
-            .map(|(n, l)| {
-                if let Some(loc) = l {
-                    if !loc.is_empty() {
-                        format!("{} ({})", n, loc)
-                    } else {
-                        n
-                    }
-                } else {
-                    n
-                }
-            })
-            .collect();
-        println!(
-            "name: {}\ndescription: {}\nscore: {}\ncontainers: {}\n",
-            result.name,
-            result.description,
-            result.similarity,
-            containers.join(" -> ")
-        );
-    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
+        .await
+        .unwrap();
+    info!("Listening");
+    axum::serve(listener, app).await.unwrap();
 
     Ok(())
 }
+
+async fn serve_index() -> Response {
+    Response::new(
+        tokio::fs::read("templates/index.html")
+            .await
+            .unwrap()
+            .into(),
+    )
+}
+
+async fn serve_search() -> Response {
+    Response::new(
+        tokio::fs::read("templates/search.html")
+            .await
+            .unwrap()
+            .into(),
+    )
+}
+
+async fn serve_containers() -> Response {
+    Response::new(
+        tokio::fs::read("templates/containers.html")
+            .await
+            .unwrap()
+            .into(),
+    )
+}
+
+async fn serve_modal_upload() -> Response {
+    Response::new(
+        tokio::fs::read("templates/modal_upload.html")
+            .await
+            .unwrap()
+            .into(),
+    )
+}
+
+async fn search(State(state): State<Arc<AppState>>, query: String) -> Html<String> {
+    match state.database.lock().unwrap().query(&query) {
+        Ok(results) => {
+            let mut context = tera::Context::new();
+            context.insert("results", &results);
+
+            Html(TEMPLATES.render("query_results.html", &context).unwrap())
+        }
+        Err(e) => Html(e.to_string()),
+    }
+}
+
+async fn small_photo(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<Bytes, StatusCode> {
+    match state.database.lock().unwrap().get_small_image(id) {
+        Ok(image) => Ok(image.into()),
+        Err(_) => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn large_photo(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Result<Bytes, StatusCode> {
+    match state.database.lock().unwrap().get_large_image(id) {
+        Ok(image) => Ok(image.into()),
+        Err(_) => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+async fn container_tree(State(state): State<Arc<AppState>>) -> Html<String> {
+    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+        return Html(String::from("Failed to retrieve containers"));
+    };
+
+    let mut context = tera::Context::new();
+    context.insert("container", &containers);
+
+    Html(TEMPLATES.render("container_tree.html", &context).unwrap())
+}
+
+async fn get_container_items(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+) -> Html<String> {
+    match state.database.lock().unwrap().get_container_items(id) {
+        Ok(results) => {
+            let mut context = tera::Context::new();
+            context.insert("results", &results);
+
+            Html(TEMPLATES.render("query_results.html", &context).unwrap())
+        }
+        Err(e) => Html(e.to_string()),
+    }
+}
+
+// async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) -> Html<String> {
+//     let mut container = None;
+//     let mut file = None;
+
+//     while let Some(field) = multipart.next_field().await.unwrap() {
+//         let field_name = field.name().unwrap_or_default();
+
+//         match field_name {
+//             "file" => file = Some(field.bytes().await.unwrap().to_vec()),
+//             "container" => container = Some(field.text().await.unwrap()),
+//             _ => (),
+//         }
+//     }
+
+//     if let (Some(container), Some(file)) = (container, file) {
+//         // Get container
+//     }
+//     todo!()
+// }

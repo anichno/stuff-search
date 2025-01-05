@@ -1,16 +1,27 @@
-use anyhow::Result;
+use std::collections::HashMap;
+
+use anyhow::{bail, Result};
 use fastembed::TextEmbedding;
-use log::{debug, info};
+use serde::Serialize;
+use tracing::{debug, info};
 use zerocopy::IntoBytes;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ItemResult {
-    id: i64,
+    pub id: i64,
     pub name: String,
     pub description: String,
-    pub small_photo: Vec<u8>,
+    // pub small_photo: Vec<u8>,
     pub similarity: f64,
     pub containers: Vec<(String, Option<String>)>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContainerTree {
+    pub id: i64,
+    pub name: String,
+    pub location: Option<String>,
+    pub containers: Vec<ContainerTree>,
 }
 
 pub struct Database {
@@ -57,9 +68,11 @@ impl Database {
             conn.execute(
                 r#"CREATE TABLE "containers" (
                             "id"	INTEGER NOT NULL UNIQUE,
+                            "name"	TEXT NOT NULL,
+                            "location"	TEXT,
                             "contained_by"	INTEGER,
                             PRIMARY KEY("id" AUTOINCREMENT)
-                        );"#,
+                        )"#,
                 [],
             )?;
 
@@ -95,7 +108,11 @@ impl Database {
                 [],
             )?;
 
-            conn.execute(r#"INSERT INTO containers(name) VALUES ("TEMP")"#, [])?;
+            conn.execute(r#"INSERT INTO containers(id, name) VALUES (1, "ROOT")"#, [])?;
+            conn.execute(
+                r#"INSERT INTO containers(name, contained_by) VALUES ("TEMP", 1)"#,
+                [],
+            )?;
 
             conn
         };
@@ -190,19 +207,13 @@ impl Database {
 
         let mut item_results = Vec::new();
         for (embedding_id, distance) in embedding_result {
-            let (id, name, description, small_photo, contained_by): (i64, String, String, Vec<u8>, i64) = self
+            let (id, name, description, contained_by): (i64, String, String, i64) = self
                 .conn
                 .prepare(
-                    "SELECT id, name, description, small_photo, contained_by FROM Items WHERE embedding_id = ?",
+                    "SELECT id, name, description, contained_by FROM Items WHERE embedding_id = ?",
                 )?
                 .query_row([embedding_id], |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?
-                    ))
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
                 })?;
 
             let mut contained_by = Some(contained_by);
@@ -221,7 +232,6 @@ impl Database {
                 id,
                 name,
                 description,
-                small_photo,
                 similarity: distance,
                 containers: storage_chain,
             };
@@ -229,5 +239,142 @@ impl Database {
         }
 
         Ok(item_results)
+    }
+
+    pub fn log_new_import(&self, source: &str, status: &str, target_container: i64) -> Result<i64> {
+        let mut stmt = self
+            .conn
+            .prepare("INSERT INTO import_log(source, status, target_container) VALUES (?,?,?)")?;
+        stmt.execute(rusqlite::params![
+            source.as_bytes(),
+            status.as_bytes(),
+            target_container
+        ])?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn cancel_import(&self, import_id: i64, reason: Option<&str>) -> Result<()> {
+        let reason = reason.unwrap_or("FAILED");
+        let mut stmt = self
+            .conn
+            .prepare(r#"UPDATE import_log SET status = ? where id = ?"#)?;
+        stmt.execute(rusqlite::params![reason, import_id])?;
+
+        Ok(())
+    }
+
+    pub fn update_import(&self, import_id: i64, status: &str) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare(r#"UPDATE import_log SET status = ? where id = ?"#)?;
+        stmt.execute(rusqlite::params![status.as_bytes(), import_id])?;
+
+        Ok(())
+    }
+
+    pub fn get_small_image(&self, item_id: i64) -> Result<Vec<u8>> {
+        let image: Vec<u8> = self
+            .conn
+            .prepare("SELECT small_photo FROM Items where id = ?")?
+            .query_row([item_id], |row| Ok(row.get(0)?))?;
+
+        Ok(image)
+    }
+
+    pub fn get_large_image(&self, item_id: i64) -> Result<Vec<u8>> {
+        let image: Vec<u8> = self
+            .conn
+            .prepare("SELECT large_photo FROM Items where id = ?")?
+            .query_row([item_id], |row| Ok(row.get(0)?))?;
+
+        Ok(image)
+    }
+
+    pub fn get_container_tree(&self) -> Result<ContainerTree> {
+        let mut containers: HashMap<i64, Vec<ContainerRow>> = HashMap::new();
+        let mut root = None;
+        self.conn
+            .prepare("SELECT id, name, location, contained_by FROM containers")?
+            .query_map([], |row| {
+                Ok(ContainerRow {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    location: row.get(2)?,
+                    contained_by: row.get(3)?,
+                })
+            })?
+            .for_each(|row| {
+                if let Ok(row) = row {
+                    if row.id == 1 {
+                        root = Some(row);
+                    } else {
+                        if let Some(contained_by) = row.contained_by {
+                            containers.entry(contained_by).or_default().push(row)
+                        }
+                    }
+                }
+            });
+
+        let Some(root) = root else {
+            bail!("Failed to find ROOT container");
+        };
+
+        let mut root = ContainerTree {
+            id: root.id,
+            name: root.name,
+            location: root.location,
+            containers: Vec::new(),
+        };
+
+        fill_tree(&mut root, &mut containers);
+
+        Ok(root)
+    }
+
+    pub fn get_container_items(&self, container_id: i64) -> Result<Vec<ItemResult>> {
+        let mut item_results = Vec::new();
+        self.conn
+            .prepare("SELECT id, name, description FROM Items WHERE contained_by = ?")?
+            .query_map([container_id], |row| {
+                Ok(ItemResult {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    similarity: 0.0,
+                    containers: Vec::new(),
+                })
+            })?
+            .for_each(|row| {
+                if let Ok(row) = row {
+                    item_results.push(row);
+                }
+            });
+
+        Ok(item_results)
+    }
+}
+
+#[derive(Debug)]
+struct ContainerRow {
+    id: i64,
+    name: String,
+    location: Option<String>,
+    contained_by: Option<i64>,
+}
+fn fill_tree(cur_node: &mut ContainerTree, contained_by_map: &mut HashMap<i64, Vec<ContainerRow>>) {
+    if let Some(containers) = contained_by_map.remove(&cur_node.id) {
+        cur_node
+            .containers
+            .extend(containers.into_iter().map(|c| ContainerTree {
+                id: c.id,
+                name: c.name,
+                location: c.location,
+                containers: Vec::new(),
+            }));
+
+        for sub_container in cur_node.containers.iter_mut() {
+            fill_tree(sub_container, contained_by_map);
+        }
     }
 }

@@ -1,0 +1,37 @@
+{% macro render_node(node) %}
+<li class="list-group-item {% if node.id==1 %}active{% endif %}" hx-get="/container/{{node.id}}/items"
+    hx-target="#container-results">
+    <div class="col">
+        <span>{{node.name}}</span>
+        {% if node.containers | length > 0 %}
+        <ul class="list-group">
+            {% for child in node.containers %}
+            {{ self::render_node(node=child) }}
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</li>
+{% endmacro %}
+
+<ul class="list-group">
+    {{ self::render_node(node=container) }}
+</ul>
+<script>
+    const list = document.getElementById('container-tree');
+    const listItems = list.querySelectorAll('.list-group-item');
+
+    // Add click event listener to each item
+    listItems.forEach(item => {
+        item.addEventListener('click', function (e) {
+            // Prevent clicks from bubbling up to parent list items
+            e.stopPropagation();
+
+            // Remove active class from all items
+            listItems.forEach(i => i.classList.remove('active'));
+
+            // Add active class to clicked item
+            this.classList.add('active');
+        });
+    });
+</script>
