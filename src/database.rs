@@ -13,7 +13,8 @@ pub struct ItemResult {
     pub description: String,
     // pub small_photo: Vec<u8>,
     pub similarity: f64,
-    pub containers: Vec<(String, Option<String>)>,
+    pub container_name: String,
+    pub container_id: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -27,7 +28,6 @@ pub struct ContainerTree {
 pub struct Database {
     conn: rusqlite::Connection,
     model: TextEmbedding,
-    temp_container_id: i64,
 }
 
 impl Database {
@@ -125,17 +125,7 @@ impl Database {
             fastembed::EmbeddingModel::MxbaiEmbedLargeV1,
         ))?;
 
-        let temp_container_id = conn.query_row(
-            r#"SELECT id from containers where name = "TEMP""#,
-            [],
-            |row| Ok(row.get(0)?),
-        )?;
-
-        Ok(Self {
-            conn,
-            model,
-            temp_container_id,
-        })
+        Ok(Self { conn, model })
     }
 
     pub fn insert_item(
@@ -204,33 +194,22 @@ impl Database {
 
         let mut item_results = Vec::new();
         for (embedding_id, distance) in embedding_result {
-            let (id, name, description, contained_by): (i64, String, String, i64) = self
+            let (id, name, description, contained_by, container_name): (i64, String, String, i64, String) = self
                 .conn
                 .prepare(
-                    "SELECT id, name, description, contained_by FROM Items WHERE embedding_id = ?",
+                    "SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.embedding_id = ?",
                 )?
                 .query_row([embedding_id], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
                 })?;
-
-            let mut contained_by = Some(contained_by);
-            let mut storage_chain = Vec::new();
-            while let Some(holder) = contained_by {
-                let (name, location, new_holder): (String, Option<String>, Option<i64>) = self
-                    .conn
-                    .prepare("SELECT name, location, contained_by from containers where id = ?")?
-                    .query_row([holder], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
-
-                storage_chain.push((name, location));
-                contained_by = new_holder;
-            }
 
             let item = ItemResult {
                 id,
                 name,
                 description,
                 similarity: distance,
-                containers: storage_chain,
+                container_name,
+                container_id: contained_by,
             };
             item_results.push(item);
         }
@@ -339,7 +318,8 @@ impl Database {
                     name: row.get(1)?,
                     description: row.get(2)?,
                     similarity: 0.0,
-                    containers: Vec::new(),
+                    container_name: String::new(),
+                    container_id,
                 })
             })?
             .for_each(|row| {
@@ -358,6 +338,14 @@ impl Database {
             .query_row([container_id], |row| Ok(row.get(0)?))?;
 
         Ok(name)
+    }
+
+    pub fn set_container_name(&self, container_name: &str, container_id: i64) -> Result<()> {
+        self.conn
+            .prepare("UPDATE containers SET name = ? WHERE id = ?")?
+            .execute(rusqlite::params![container_name, container_id])?;
+
+        Ok(())
     }
 
     pub fn add_child_container(&self, name: &str, parent_id: i64) -> Result<()> {

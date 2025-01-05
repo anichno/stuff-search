@@ -1,12 +1,13 @@
 use std::{
-    fmt::Write,
+    collections::HashMap,
+    fmt::{Debug, Write},
     sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
 use axum::{
     body::Bytes,
-    extract::{DefaultBodyLimit, Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::{Html, Response},
     routing::{get, post},
@@ -37,6 +38,12 @@ struct AppState {
     importer: Arc<Mutex<import::Importer>>,
 }
 
+impl Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState").finish()
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct CreateContainer {
     new_container_name: String,
@@ -52,7 +59,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_forest::ForestLayer::default())
         .init();
 
     let db = Arc::new(Mutex::new(database::Database::init()?));
@@ -68,6 +75,12 @@ async fn main() -> Result<()> {
         .route("/search", post(search))
         .route("/container/{id}", get(container))
         .route("/container/{id}/create", get(container_create_child))
+        .route("/container/{id}/rename", get(get_container_rename))
+        .route("/container/{id}/rename", post(handle_container_rename))
+        .route(
+            "/container/{id}/rename/cancel",
+            get(get_container_rename_cancel),
+        )
         .route("/container/create", post(create_container))
         .route("/modal/upload/{id}", get(modal_upload))
         .route("/upload", post(upload))
@@ -95,6 +108,7 @@ async fn serve_index() -> Response {
     )
 }
 
+#[tracing::instrument]
 async fn serve_search() -> Html<String> {
     Html(
         TEMPLATES
@@ -105,19 +119,32 @@ async fn serve_search() -> Html<String> {
     )
 }
 
-async fn search(State(state): State<Arc<AppState>>, query: String) -> Html<String> {
-    match state.database.lock().unwrap().query(&query) {
-        Ok(results) => Html(
-            TEMPLATES
-                .get_template("search.html")
-                .unwrap()
-                .eval_to_state(context!(results))
-                .unwrap()
-                .render_block("query_results")
-                .unwrap(),
-        ),
-        Err(e) => Html(e.to_string()),
-    }
+#[tracing::instrument]
+async fn search(
+    State(state): State<Arc<AppState>>,
+    Form(query): Form<HashMap<String, String>>,
+) -> Html<String> {
+    let results = if let Some(query) = query.get("search") {
+        match state.database.lock().unwrap().query(&query) {
+            Ok(results) => results,
+            Err(e) => {
+                error!("{}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("search.html")
+            .unwrap()
+            .eval_to_state(context!(results))
+            .unwrap()
+            .render_block("query_results")
+            .unwrap(),
+    )
 }
 
 async fn small_photo(
@@ -208,6 +235,91 @@ async fn create_container(
             .get_template("containers.html")
             .unwrap()
             .render(context!(container => containers, results => items, active_node_id => payload.parent_container_id))
+            .unwrap(),
+    )
+}
+
+async fn get_container_rename(
+    State(state): State<Arc<AppState>>,
+    Path(container_id): Path<i64>,
+) -> Html<String> {
+    let Ok(container_name) = state
+        .database
+        .lock()
+        .unwrap()
+        .get_container_name(container_id)
+    else {
+        return Html(String::from("Failed to fetch container name"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("container_edit.html")
+            .unwrap()
+            .render(context!(container_name, container_id))
+            .unwrap(),
+    )
+}
+
+async fn get_container_rename_cancel(
+    State(state): State<Arc<AppState>>,
+    Path(container_id): Path<i64>,
+) -> Html<String> {
+    let Ok(container_name) = state
+        .database
+        .lock()
+        .unwrap()
+        .get_container_name(container_id)
+    else {
+        return Html(String::from("Failed to fetch container name"));
+    };
+
+    Html(
+        TEMPLATES
+            .render_str(
+                r##"<span id="container-{{container_id}}" hx-get="/container/{{container_id}}"
+                    hx-target="#page-content">{{container_name}}</span>"##,
+                context!(container_name, container_id),
+            )
+            .unwrap(),
+    )
+}
+
+async fn handle_container_rename(
+    State(state): State<Arc<AppState>>,
+    Path(container_id): Path<i64>,
+    Form(new_container_name): Form<HashMap<String, String>>,
+) -> Html<String> {
+    state
+        .database
+        .lock()
+        .unwrap()
+        .set_container_name(
+            &new_container_name.get("new_container_name").unwrap(),
+            container_id,
+        )
+        .unwrap();
+
+    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+        return Html(String::from("Failed to retrieve containers"));
+    };
+
+    let Ok(items) = state
+        .database
+        .lock()
+        .unwrap()
+        .get_container_items(container_id)
+    else {
+        return Html(String::from("Failed to retrieve items"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("containers.html")
+            .unwrap()
+            .render(
+                context!(container => containers, results => items, active_node_id => container_id),
+            )
             .unwrap(),
     )
 }

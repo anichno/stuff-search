@@ -15,8 +15,8 @@
                     <path d="m8 3.293 6 6V13.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5V9.293l6-6Z"></path>
                 </svg>
                 {% else %}
-                <span hx-get="/container/{{node.id}}" hx-target="#page-content">{{node.name}}</span>
-                {% endif %}
+                <span id="container-{{node.id}}" hx-get="/container/{{node.id}}"
+                    hx-target="#page-content">{{node.name}}</span>
                 {% if node.id == active_node_id %}
                 <span class="float-end"><svg class="bi bi-plus-square text-success" xmlns="http://www.w3.org/2000/svg"
                         width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16" style="width: 30px;"
@@ -27,10 +27,18 @@
                         <path
                             d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4">
                         </path>
-                    </svg><svg class="bi bi-upload text-warning btn-upload-success" xmlns="http://www.w3.org/2000/svg"
-                        width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16"
-                        style="margin: 0px;width: 30px;" hx-get="/modal/upload/{{node.id}}" hx-target="#modals-here"
-                        hx-trigger="click" data-bs-toggle="modal" data-bs-target="#modals-here">
+                    </svg>
+                    <svg class="bi bi-pencil text-warning" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em"
+                        fill="currentColor" viewBox="0 0 16 16" style="width: 30px;"
+                        hx-get="/container/{{node.id}}/rename" hx-target="#container-{{node.id}}" hx-swap="outerHTML">
+                        <path
+                            d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z">
+                        </path>
+                    </svg>
+                    <svg class="bi bi-upload text-warning btn-upload-success" xmlns="http://www.w3.org/2000/svg"
+                        width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16" style="width: 30px;"
+                        hx-get="/modal/upload/{{node.id}}" hx-target="#modals-here" hx-trigger="click"
+                        data-bs-toggle="modal" data-bs-target="#modals-here">
                         <path
                             d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5">
                         </path>
@@ -51,6 +59,8 @@
                     {% endif %}
                 </span>
                 {% endif %}
+                {% endif %}
+
                 {% if node.containers | length > 0 or node.id == active_node_id and add_child %}
                 <ul class="list-group">
                     {% if node.id == active_node_id and add_child %}
@@ -97,7 +107,16 @@
         </div>
         <div class="col-md-8">
             <div class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3" id="container-results">
-                {% include "query_results.html" %}
+                {% for result in results %}
+                <div class="col">
+                    <div><img class="rounded img-fluid d-block w-100 fit-cover"
+                            src="/images/small/{{result.id}}/small.jpg" />
+                        <div class="py-4">
+                            <h4>{{result.name}}</h4>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
         </div>
     </div>
