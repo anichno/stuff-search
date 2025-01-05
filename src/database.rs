@@ -109,10 +109,6 @@ impl Database {
             )?;
 
             conn.execute(r#"INSERT INTO containers(id, name) VALUES (1, "ROOT")"#, [])?;
-            conn.execute(
-                r#"INSERT INTO containers(name, contained_by) VALUES ("TEMP", 1)"#,
-                [],
-            )?;
 
             conn
         };
@@ -148,6 +144,7 @@ impl Database {
         description: &str,
         small_photo: &[u8],
         large_photo: &[u8],
+        contained_by: i64,
     ) -> Result<()> {
         let embedding = self
             .model
@@ -164,7 +161,7 @@ impl Database {
         self.conn.prepare(r#"INSERT INTO 
                                     Items(name, description, small_photo, large_photo, embedding_id, contained_by)
                                     VALUES (?,?,?,?,?,?)"#)?
-                                    .execute(rusqlite::params![name, description, small_photo.as_bytes(), large_photo.as_bytes(), last_id, self.temp_container_id])?;
+                                    .execute(rusqlite::params![name, description, small_photo.as_bytes(), large_photo.as_bytes(), last_id, contained_by])?;
 
         Ok(())
     }
@@ -352,6 +349,24 @@ impl Database {
             });
 
         Ok(item_results)
+    }
+
+    pub fn get_container_name(&self, container_id: i64) -> Result<String> {
+        let name: String = self
+            .conn
+            .prepare("SELECT name FROM containers WHERE id = ?")?
+            .query_row([container_id], |row| Ok(row.get(0)?))?;
+
+        Ok(name)
+    }
+
+    pub fn add_child_container(&self, name: &str, parent_id: i64) -> Result<()> {
+        let mut stmt = self
+            .conn
+            .prepare("INSERT INTO containers(name, contained_by) VALUES (?,?)")?;
+        stmt.execute(rusqlite::params![name, parent_id,])?;
+
+        Ok(())
     }
 }
 

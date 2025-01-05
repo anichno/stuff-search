@@ -1,64 +1,103 @@
+{% if add_child %}
+<p>sup</p>
+{% endif %}
 <div class="container">
     <div class="row">
         <div class="col-md-4">
-            <div id="container-tree" hx-get="/containers" hx-trigger="load">
-                {% block container_tree %}
-                {% if container %}
-                {% macro render_node(node) %}
-                <li class="list-group-item {% if node.id==1 %}active{% endif %}" hx-get="/container/{{node.id}}/items"
-                    hx-target="#container-results">
-                    <div class="col">
-                        <span>{{node.name}}</span>
-                        {% if node.containers | length > 0 %}
-                        <ul class="list-group">
-                            {% for child in node.containers %}
-                            {{ render_node(node=child) }}
-                            {% endfor %}
-                        </ul>
-                        {% endif %}
-                    </div>
-                </li>
-                {% endmacro %}
-
-                <ul class="list-group">
-                    {{ render_node(node=container) }}
-                </ul>
-                <script>
-                    const list = document.getElementById('container-tree');
-                    const listItems = list.querySelectorAll('.list-group-item');
-
-                    // Add click event listener to each item
-                    listItems.forEach(item => {
-                        item.addEventListener('click', function (e) {
-                            // Prevent clicks from bubbling up to parent list items
-                            e.stopPropagation();
-
-                            // Remove active class from all items
-                            listItems.forEach(i => i.classList.remove('active'));
-
-                            // Add active class to clicked item
-                            this.classList.add('active');
-                        });
-                    });
-                </script>
+            {% macro render_node(node) %}
+            <li class="list-group-item {% if node.id==active_node_id %}list-group-item-light active{% endif %}">
+                {% if node.id==1 %}
+                <svg hx-get="/container/{{node.id}}" hx-target="#page-content" class="bi bi-house-fill"
+                    xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+                    <path
+                        d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293z">
+                    </path>
+                    <path d="m8 3.293 6 6V13.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5V9.293l6-6Z"></path>
+                </svg>
+                {% else %}
+                <span hx-get="/container/{{node.id}}" hx-target="#page-content">{{node.name}}</span>
                 {% endif %}
-                {% endblock %}
-            </div>
+                {% if node.id == active_node_id %}
+                <span class="float-end"><svg class="bi bi-plus-square text-success" xmlns="http://www.w3.org/2000/svg"
+                        width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16" style="width: 30px;"
+                        hx-get="/container/{{node.id}}/create" hx-target="#page-content">
+                        <path
+                            d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z">
+                        </path>
+                        <path
+                            d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4">
+                        </path>
+                    </svg><svg class="bi bi-upload text-warning btn-upload-success" xmlns="http://www.w3.org/2000/svg"
+                        width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16"
+                        style="margin: 0px;width: 30px;" hx-get="/modal/upload/{{node.id}}" hx-target="#modals-here"
+                        hx-trigger="click" data-bs-toggle="modal" data-bs-target="#modals-here">
+                        <path
+                            d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5">
+                        </path>
+                        <path
+                            d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z">
+                        </path>
+                    </svg>
+                    {% if node.id != 1 and not add_child %}
+                    <svg class="bi bi-trash text-danger" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em"
+                        fill="currentColor" viewBox="0 0 16 16" style="width: 30px;">
+                        <path
+                            d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z">
+                        </path>
+                        <path
+                            d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z">
+                        </path>
+                    </svg>
+                    {% endif %}
+                </span>
+                {% endif %}
+                {% if node.containers | length > 0 or node.id == active_node_id and add_child %}
+                <ul class="list-group">
+                    {% if node.id == active_node_id and add_child %}
+                    <li class="list-group-item">
+                        <form hx-post="/container/create" hx-trigger="submit" hx-target="#page-content"><input
+                                class="form-control" type="hidden" name="parent_container_id"
+                                value="{{node.id}}" /><input class="form-control" type="text"
+                                placeholder="New Container Name" name="new_container_name" />
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-success" type="submit"><svg class="bi bi-floppy"
+                                        xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor"
+                                        viewBox="0 0 16 16">
+                                        <path d="M11 2H9v3h2z"></path>
+                                        <path
+                                            d="M1.5 0h11.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 1 16 2.914V14.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 14.5v-13A1.5 1.5 0 0 1 1.5 0M1 1.5v13a.5.5 0 0 0 .5.5H2v-4.5A1.5 1.5 0 0 1 3.5 9h9a1.5 1.5 0 0 1 1.5 1.5V15h.5a.5.5 0 0 0 .5-.5V2.914a.5.5 0 0 0-.146-.353l-1.415-1.415A.5.5 0 0 0 13.086 1H13v4.5A1.5 1.5 0 0 1 11.5 7h-7A1.5 1.5 0 0 1 3 5.5V1H1.5a.5.5 0 0 0-.5.5m3 4a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V1H4zM3 15h10v-4.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5z">
+                                        </path>
+                                    </svg></button><button class="btn btn-outline-danger" type="button"
+                                    hx-get="/container/{{node.id}}" hx-target="#page-content"><svg class="bi bi-trash"
+                                        xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor"
+                                        viewBox="0 0 16 16">
+                                        <path
+                                            d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z">
+                                        </path>
+                                        <path
+                                            d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z">
+                                        </path>
+                                    </svg></button>
+                            </div>
+                        </form>
+                    </li>
+
+                    {% endif %}
+                    {% for child in node.containers %}
+                    {{ render_node(node=child) }}
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endmacro %}
+
+            <ul class="list-group">
+                {{ render_node(node=container) }}
+            </ul>
         </div>
         <div class="col-md-8">
-            <div class="row">
-                <div class="col">
-                    <div class="btn-group float-end" role="group"><button class="btn btn-success"
-                            type="button">Upload</button><button class="btn btn-danger" type="button">Delete</button>
-                    </div>
-                </div>
-            </div>
-            <div class="row"></div>
-            <div class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3" id="container-results"
-                hx-get="/container/1/items" hx-trigger="load">
-                {% block query_results %}
+            <div class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3" id="container-results">
                 {% include "query_results.html" %}
-                {% endblock %}
             </div>
         </div>
     </div>

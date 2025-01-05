@@ -116,6 +116,7 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
 
             let mut photo_data = Vec::new();
             image
+                .to_rgb8()
                 .write_to(
                     &mut std::io::Cursor::new(&mut photo_data),
                     image::ImageFormat::Jpeg,
@@ -146,9 +147,14 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
                     &item_info.description,
                     &photo_resized_small,
                     &photo_resized_large,
+                    request.target_container,
                 )
                 .unwrap();
         }
+        db.lock()
+            .unwrap()
+            .update_import(log_id, "Complete")
+            .unwrap();
     }
 }
 
@@ -252,6 +258,7 @@ fn downscale_image(image: &DynamicImage, max_dim: u32) -> Vec<u8> {
 
     let mut data = Vec::new();
     resized_img
+        .to_rgb8()
         .write_to(
             &mut std::io::Cursor::new(&mut data),
             image::ImageFormat::Jpeg,

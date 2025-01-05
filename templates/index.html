@@ -28,7 +28,7 @@
                 <ul class="navbar-nav mx-auto">
                     <li class="nav-item"><a class="nav-link active" hx-get="/page/search"
                             hx-target="#page-content">Search</a></li>
-                    <li class="nav-item"><a class="nav-link active" hx-get="/page/containers"
+                    <li class="nav-item"><a class="nav-link active" hx-get="/container/1"
                             hx-target="#page-content">Containers</a></li>
                     <li class="nav-item"><a class="nav-link active" href="#">Log</a></li>
 
@@ -36,7 +36,7 @@
             </div>
         </div>
     </nav>
-    <div id="page-content" hx-get="/page/search" hx-trigger="load" hx-swap="outerHTML"></div>
+    <div id="page-content" hx-get="/page/search" hx-trigger="load"></div>
     <div class="modal fade modal-blur" role="dialog" tabindex="-1" id="modals-here" aria-hidden="false">
         <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
             <div class="modal-content"></div>
