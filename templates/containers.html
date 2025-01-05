@@ -2,6 +2,47 @@
     <div class="row">
         <div class="col-md-4">
             <div id="container-tree" hx-get="/containers" hx-trigger="load">
+                {% block container_tree %}
+                {% if container %}
+                {% macro render_node(node) %}
+                <li class="list-group-item {% if node.id==1 %}active{% endif %}" hx-get="/container/{{node.id}}/items"
+                    hx-target="#container-results">
+                    <div class="col">
+                        <span>{{node.name}}</span>
+                        {% if node.containers | length > 0 %}
+                        <ul class="list-group">
+                            {% for child in node.containers %}
+                            {{ render_node(node=child) }}
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                </li>
+                {% endmacro %}
+
+                <ul class="list-group">
+                    {{ render_node(node=container) }}
+                </ul>
+                <script>
+                    const list = document.getElementById('container-tree');
+                    const listItems = list.querySelectorAll('.list-group-item');
+
+                    // Add click event listener to each item
+                    listItems.forEach(item => {
+                        item.addEventListener('click', function (e) {
+                            // Prevent clicks from bubbling up to parent list items
+                            e.stopPropagation();
+
+                            // Remove active class from all items
+                            listItems.forEach(i => i.classList.remove('active'));
+
+                            // Add active class to clicked item
+                            this.classList.add('active');
+                        });
+                    });
+                </script>
+                {% endif %}
+                {% endblock %}
             </div>
         </div>
         <div class="col-md-8">
@@ -15,6 +56,9 @@
             <div class="row"></div>
             <div class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3" id="container-results"
                 hx-get="/container/1/items" hx-trigger="load">
+                {% block query_results %}
+                {% include "query_results.html" %}
+                {% endblock %}
             </div>
         </div>
     </div>

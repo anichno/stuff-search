@@ -12,8 +12,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use clap::builder::Str;
-use tera::Tera;
+use minijinja::context;
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -21,15 +20,12 @@ mod database;
 mod import;
 
 lazy_static::lazy_static! {
-    pub static ref TEMPLATES: Tera = {
-        let tera = match Tera::new("templates/*") {
-            Ok(t) => t,
-            Err(e) => {
-                println!("Parsing error(s): {}", e);
-                ::std::process::exit(1);
-            }
-        };
-        tera
+    pub static ref TEMPLATES: minijinja::Environment<'static> = {
+        let mut env = minijinja::Environment::new();
+        env.set_loader(minijinja::path_loader("templates"));
+
+        env
+
     };
 }
 
@@ -37,36 +33,6 @@ struct AppState {
     database: Arc<Mutex<database::Database>>,
     importer: Arc<Mutex<import::Importer>>,
 }
-
-// /// Ingest multiple photos of items, get descriptions of them, and downscale image
-// #[derive(Parser, Debug)]
-// #[command(version, about, long_about = None)]
-// struct Args {
-//     // /// Path to ingest root
-//     // #[arg(short, long)]
-//     // ingest: String,
-//     /// Path to zip file of photos
-//     #[arg(short, long)]
-//     zip: String,
-// }
-
-// fn render_template(tera: &tera::Tera, photo_name: &str, item: &ItemInfo) -> String {
-//     #[derive(Debug, Serialize)]
-//     struct ItemContext {
-//         photo_name: String,
-//         name: String,
-//         description: String,
-//     }
-
-//     let context = ItemContext {
-//         photo_name: photo_name.to_string(),
-//         name: item.name.clone(),
-//         description: item.description.clone(),
-//     };
-
-//     tera.render("item.md", &tera::Context::from_serialize(&context).unwrap())
-//         .unwrap()
-// }
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -81,11 +47,6 @@ async fn main() -> Result<()> {
         .init();
 
     // let args = Args::parse();
-
-    // Setup tera templates
-    let mut tera = tera::Tera::default();
-    tera.add_raw_template("item.md", include_str!("item_template.md"))
-        .unwrap();
 
     let db = Arc::new(Mutex::new(database::Database::init()?));
     let importer = Arc::new(Mutex::new(import::Importer::new(db.clone()).await));
@@ -137,21 +98,23 @@ async fn serve_index() -> Response {
     )
 }
 
-async fn serve_search() -> Response {
-    Response::new(
-        tokio::fs::read("templates/search.html")
-            .await
+async fn serve_search() -> Html<String> {
+    Html(
+        TEMPLATES
+            .get_template("search.html")
             .unwrap()
-            .into(),
+            .render(context!())
+            .unwrap(),
     )
 }
 
-async fn serve_containers() -> Response {
-    Response::new(
-        tokio::fs::read("templates/containers.html")
-            .await
+async fn serve_containers() -> Html<String> {
+    Html(
+        TEMPLATES
+            .get_template("containers.html")
             .unwrap()
-            .into(),
+            .render(context!())
+            .unwrap(),
     )
 }
 
@@ -166,12 +129,15 @@ async fn serve_modal_upload() -> Response {
 
 async fn search(State(state): State<Arc<AppState>>, query: String) -> Html<String> {
     match state.database.lock().unwrap().query(&query) {
-        Ok(results) => {
-            let mut context = tera::Context::new();
-            context.insert("results", &results);
-
-            Html(TEMPLATES.render("query_results.html", &context).unwrap())
-        }
+        Ok(results) => Html(
+            TEMPLATES
+                .get_template("search.html")
+                .unwrap()
+                .eval_to_state(context!(results))
+                .unwrap()
+                .render_block("query_results")
+                .unwrap(),
+        ),
         Err(e) => Html(e.to_string()),
     }
 }
@@ -201,10 +167,15 @@ async fn container_tree(State(state): State<Arc<AppState>>) -> Html<String> {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let mut context = tera::Context::new();
-    context.insert("container", &containers);
-
-    Html(TEMPLATES.render("container_tree.html", &context).unwrap())
+    Html(
+        TEMPLATES
+            .get_template("containers.html")
+            .unwrap()
+            .eval_to_state(context!(container => containers))
+            .unwrap()
+            .render_block("container_tree")
+            .unwrap(),
+    )
 }
 
 async fn get_container_items(
@@ -212,12 +183,15 @@ async fn get_container_items(
     Path(id): Path<i64>,
 ) -> Html<String> {
     match state.database.lock().unwrap().get_container_items(id) {
-        Ok(results) => {
-            let mut context = tera::Context::new();
-            context.insert("results", &results);
-
-            Html(TEMPLATES.render("query_results.html", &context).unwrap())
-        }
+        Ok(results) => Html(
+            TEMPLATES
+                .get_template("containers.html")
+                .unwrap()
+                .eval_to_state(context!(results))
+                .unwrap()
+                .render_block("query_results")
+                .unwrap(),
+        ),
         Err(e) => Html(e.to_string()),
     }
 }
