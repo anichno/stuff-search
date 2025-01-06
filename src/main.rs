@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
         .route("/container/create", post(create_container))
         .route("/modal/upload/{id}", get(modal_upload))
         .route("/upload", post(upload))
+        .route("/modal/item/{id}/show", get(modal_item_show))
         .route("/images/small/{id}/small.jpg", get(small_photo))
         .route("/images/large/{id}/large.jpg", get(large_photo))
         .layer(DefaultBodyLimit::max(usize::MAX))
@@ -178,7 +179,7 @@ async fn container(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> H
 
     Html(
         TEMPLATES
-            .get_template("containers.html")
+            .get_template("containers/containers.html")
             .unwrap()
             .render(context!(container => containers, results => items, active_node_id => id))
             .unwrap(),
@@ -199,7 +200,7 @@ async fn container_create_child(
 
     Html(
         TEMPLATES
-            .get_template("containers.html")
+            .get_template("containers/containers.html")
             .unwrap()
             .render(context!(container => containers, results => items, active_node_id => id, add_child => true))
             .unwrap(),
@@ -232,7 +233,7 @@ async fn create_container(
 
     Html(
         TEMPLATES
-            .get_template("containers.html")
+            .get_template("containers/containers.html")
             .unwrap()
             .render(context!(container => containers, results => items, active_node_id => payload.parent_container_id))
             .unwrap(),
@@ -254,7 +255,7 @@ async fn get_container_rename(
 
     Html(
         TEMPLATES
-            .get_template("container_edit.html")
+            .get_template("containers/container_edit.html")
             .unwrap()
             .render(context!(container_name, container_id))
             .unwrap(),
@@ -276,11 +277,9 @@ async fn get_container_rename_cancel(
 
     Html(
         TEMPLATES
-            .render_str(
-                r##"<span id="container-{{container_id}}" hx-get="/container/{{container_id}}"
-                    hx-target="#page-content">{{container_name}}</span>"##,
-                context!(container_name, container_id),
-            )
+            .get_template("containers/container_single.html")
+            .unwrap()
+            .render(context!(container_name, container_id))
             .unwrap(),
     )
 }
@@ -315,7 +314,7 @@ async fn handle_container_rename(
 
     Html(
         TEMPLATES
-            .get_template("containers.html")
+            .get_template("containers/containers.html")
             .unwrap()
             .render(
                 context!(container => containers, results => items, active_node_id => container_id),
@@ -339,7 +338,7 @@ async fn modal_upload(
 
     Html(
         TEMPLATES
-            .get_template("modal_upload.html")
+            .get_template("containers/modal_upload.html")
             .unwrap()
             .render(context!(container_name, container_id, in_progress => false))
             .unwrap(),
@@ -397,7 +396,7 @@ async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) ->
 
         return Html(
             TEMPLATES
-                .get_template("modal_upload.html")
+                .get_template("containers/modal_upload.html")
                 .unwrap()
                 .render(context!(container_name, container_id, in_progress => true))
                 .unwrap(),
@@ -407,4 +406,21 @@ async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) ->
     Html(String::from(
         "<script>bootstrap.Modal.getInstance(document.getElementById('modals-here')).hide()</script>",
     ))
+}
+
+async fn modal_item_show(
+    State(state): State<Arc<AppState>>,
+    Path(item_id): Path<i64>,
+) -> Html<String> {
+    let Ok(item) = state.database.lock().unwrap().get_item(item_id) else {
+        return Html(String::from("Failed to retrieve item"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("items/modal_display.html")
+            .unwrap()
+            .render(context!(item_id => item.id, item_name => item.name, item_location => item.container_name, item_description => item.description))
+            .unwrap(),
+    )
 }

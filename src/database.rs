@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error};
 
 use anyhow::{bail, Result};
 use fastembed::TextEmbedding;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 use zerocopy::IntoBytes;
 
@@ -192,24 +192,30 @@ impl Database {
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
+        #[derive(Debug, Deserialize)]
+        struct QueryResult {
+            id: i64,
+            name: String,
+            description: String,
+            contained_by: i64,
+            container_name: String,
+        }
+
         let mut item_results = Vec::new();
         for (embedding_id, distance) in embedding_result {
-            let (id, name, description, contained_by, container_name): (i64, String, String, i64, String) = self
+            let result = self
                 .conn
                 .prepare(
                     "SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.embedding_id = ?",
-                )?
-                .query_row([embedding_id], |row| {
-                    Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
-                })?;
+                )?.query_row([embedding_id], |row| Ok(serde_rusqlite::from_row::<QueryResult>(row).unwrap()))?;
 
             let item = ItemResult {
-                id,
-                name,
-                description,
+                id: result.id,
+                name: result.name,
+                description: result.description,
                 similarity: distance,
-                container_name,
-                container_id: contained_by,
+                container_name: result.container_name,
+                container_id: result.contained_by,
             };
             item_results.push(item);
         }
@@ -355,6 +361,32 @@ impl Database {
         stmt.execute(rusqlite::params![name, parent_id,])?;
 
         Ok(())
+    }
+
+    pub fn get_item(&self, item_id: i64) -> Result<ItemResult> {
+        #[derive(Debug, Deserialize)]
+        struct QueryResult {
+            id: i64,
+            name: String,
+            description: String,
+            contained_by: i64,
+            container_name: String,
+        }
+
+        let result = self
+                .conn
+                .prepare(
+                    "SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.id = ?",
+                )?.query_row([item_id], |row| Ok(serde_rusqlite::from_row::<QueryResult>(row).unwrap()))?;
+
+        Ok(ItemResult {
+            id: result.id,
+            name: result.name,
+            description: result.description,
+            similarity: 0.0,
+            container_name: result.container_name,
+            container_id: result.contained_by,
+        })
     }
 }
 

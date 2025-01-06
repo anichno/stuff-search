@@ -1,28 +1,53 @@
 <div class="container py-4 py-xl-5">
-    <div class="row">
-        <div class="col text-center"><input type="search" hx-post="/search"
-                hx-trigger="input changed delay:500ms, keyup[key=='Enter'], load" hx-target="#search-results"
-                placeholder="Search Stuff" name="search"></div>
+  <div class="row">
+    <div class="col text-center">
+      <input
+        type="search"
+        hx-post="/search"
+        hx-trigger="input changed delay:500ms, keyup[key=='Enter'], load"
+        hx-target="#search-results"
+        placeholder="Search Stuff"
+        name="search" />
     </div>
-    <div class="row mb-5"></div>
-    <div class="row mb-5">
-        <div class="col-md-8 col-xl-6 text-center mx-auto">
-            <h2>Results</h2>
+  </div>
+  <div class="row mb-5"></div>
+  <div class="row mb-5">
+    <div class="col-md-8 col-xl-6 text-center mx-auto">
+      <h2>Results</h2>
+    </div>
+  </div>
+  <div
+    class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3"
+    id="search-results">
+    {% block query_results %} {% for result in results %}
+    <div class="col">
+      <div>
+        <div
+          hx-get="/modal/item/{{result.id}}/show"
+          hx-target="#modals-here"
+          hx-trigger="click"
+          data-bs-toggle="modal"
+          data-bs-target="#modals-here">
+          <img
+            class="rounded img-fluid d-block w-100 fit-cover"
+            src="/images/small/{{result.id}}/small.jpg" />
+          <div class="py-4 text-center">
+            <h4>{{result.name}}</h4>
+          </div>
         </div>
-    </div>
-    <div class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3" id="search-results">
-        {% block query_results %}
-        {% for result in results %}
-        <div class="col">
-            <div><img class="rounded img-fluid d-block w-100 fit-cover" src="/images/small/{{result.id}}/small.jpg" />
-                <div class="py-4">
-                    <h4>{{result.name}}</h4>
-                    <button class="btn btn-link" type="button" hx-get="/container/{{result.container_id}}"
-                        hx-target="#page-content">{{result.container_name}}</button>
-                </div>
-            </div>
+        <div
+          class="text-center"
+          style="margin-top: -30px">
+          <button
+            class="btn btn-link"
+            type="button"
+            hx-get="/container/{{result.container_id}}"
+            hx-target="#page-content">
+            {{result.container_name}}
+          </button>
         </div>
-        {% endfor %}
-        {% endblock %}
+      </div>
     </div>
+    {% endfor %} {% endblock %}
+  </div>
 </div>
