@@ -89,6 +89,8 @@ async fn main() -> Result<()> {
             get(get_container_rename_cancel),
         )
         .route("/container/create", post(create_container))
+        .route("/container/{id}", delete(delete_container_unconfirmed))
+        .route("/container/{id}/confirm", delete(delete_container))
         .route("/modal/upload/{id}", get(modal_upload))
         .route("/upload", post(upload))
         .route("/modal/item/{id}/show", get(modal_item_show))
@@ -518,6 +520,52 @@ async fn delete_item(State(state): State<Arc<AppState>>, Path(item_id): Path<i64
             .render(
                 context!(container => containers, results => items, active_node_id => container_id),
             )
+            .unwrap(),
+    )
+}
+
+async fn delete_container_unconfirmed(
+    State(state): State<Arc<AppState>>,
+    Path(container_id): Path<i64>,
+) -> Html<String> {
+    let container_name = state
+        .database
+        .lock()
+        .unwrap()
+        .get_container_name(container_id)
+        .unwrap();
+
+    Html(
+        TEMPLATES
+            .get_template("containers/modal_delete.html")
+            .unwrap()
+            .render(context!(container_id, container_name))
+            .unwrap(),
+    )
+}
+
+async fn delete_container(
+    State(state): State<Arc<AppState>>,
+    Path(container_id): Path<i64>,
+) -> Html<String> {
+    let database = state.database.lock().unwrap();
+    let container_parent = database.get_container_parent(container_id).unwrap();
+
+    database.delete_container(container_id).unwrap();
+
+    let Ok(containers) = database.get_container_tree() else {
+        return Html(String::from("Failed to retrieve containers"));
+    };
+
+    let Ok(items) = database.get_container_items(container_parent) else {
+        return Html(String::from("Failed to retrieve items"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("containers/containers.html")
+            .unwrap()
+            .render(context!(container => containers, results => items, active_node_id => container_parent))
             .unwrap(),
     )
 }

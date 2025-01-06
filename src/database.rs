@@ -354,6 +354,49 @@ impl Database {
         Ok(())
     }
 
+    pub fn get_container_parent(&self, container_id: i64) -> Result<i64> {
+        let parent: i64 = self
+            .conn
+            .prepare("SELECT contained_by FROM containers WHERE id = ?")?
+            .query_row([container_id], |row| Ok(row.get(0)?))?;
+
+        Ok(parent)
+    }
+
+    pub fn get_container_children(&self, container_id: i64) -> Result<Vec<i64>> {
+        let mut children = Vec::new();
+        for child_row in serde_rusqlite::from_rows::<i64>(
+            self.conn
+                .prepare("SELECT id FROM containers WHERE contained_by = ?")?
+                .query([container_id])?,
+        ) {
+            if let Ok(child) = child_row {
+                children.push(child);
+            }
+        }
+
+        Ok(children)
+    }
+
+    /// This will recursively delete all containers and items
+    pub fn delete_container(&self, container_id: i64) -> Result<()> {
+        let mut containers = vec![container_id];
+        while let Some(cur_container_id) = containers.pop() {
+            for item in self.get_container_items(cur_container_id).unwrap() {
+                self.delete_item(item.id).unwrap();
+            }
+
+            containers.extend(self.get_container_children(cur_container_id).unwrap());
+
+            // Do deletion of this container, now that it has no items and we know its children
+            self.conn
+                .prepare("DELETE FROM containers WHERE id = ?")?
+                .execute([cur_container_id])?;
+        }
+
+        Ok(())
+    }
+
     pub fn add_child_container(&self, name: &str, parent_id: i64) -> Result<()> {
         let mut stmt = self
             .conn
