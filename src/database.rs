@@ -415,6 +415,26 @@ impl Database {
 
         Ok(())
     }
+
+    pub fn delete_item(&self, item_id: i64) -> Result<()> {
+        // get related embedding_id
+        let embedding_id: i64 = self
+            .conn
+            .prepare("SELECT embedding_id FROM Items where id = ?")?
+            .query_row([item_id], |row| Ok(row.get(0)?))?;
+
+        // delete embedding
+        self.conn
+            .prepare("DELETE FROM vec_items where rowid = ?")?
+            .execute(rusqlite::params![embedding_id])?;
+
+        // delete item
+        self.conn
+            .prepare("DELETE FROM Items where id = ?")?
+            .execute(rusqlite::params![item_id])?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

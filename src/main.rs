@@ -10,7 +10,7 @@ use axum::{
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     http::StatusCode,
     response::{Html, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Form, Router,
 };
 use minijinja::context;
@@ -94,6 +94,8 @@ async fn main() -> Result<()> {
         .route("/modal/item/{id}/show", get(modal_item_show))
         .route("/model/item/{id}/edit", get(get_modal_item_edit))
         .route("/model/item/{id}/edit", post(handle_modal_item_edit))
+        .route("/item/{i}", delete(delete_item_unconfirmed))
+        .route("/item/{i}/confirm", delete(delete_item))
         .route("/images/small/{id}/small.jpg", get(small_photo))
         .route("/images/large/{id}/large.jpg", get(large_photo))
         .layer(DefaultBodyLimit::max(usize::MAX))
@@ -470,4 +472,52 @@ async fn handle_modal_item_edit(
                 .render(context!(item_id, item_name => edit_item.new_name, item_location => edit_item.new_location, item_description => edit_item.new_description))
                 .unwrap(),
         )
+}
+
+async fn delete_item_unconfirmed(Path(item_id): Path<i64>) -> Html<String> {
+    Html(
+        TEMPLATES
+            .get_template("items/delete_confirm_snippet.html")
+            .unwrap()
+            .render(context!(item_id))
+            .unwrap(),
+    )
+}
+
+async fn delete_item(State(state): State<Arc<AppState>>, Path(item_id): Path<i64>) -> Html<String> {
+    // get item container
+    let container_id = state
+        .database
+        .lock()
+        .unwrap()
+        .get_item(item_id)
+        .unwrap()
+        .container_id;
+
+    // do deletion
+    state.database.lock().unwrap().delete_item(item_id).unwrap();
+
+    // return relevant container page
+    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+        return Html(String::from("Failed to retrieve containers"));
+    };
+
+    let Ok(items) = state
+        .database
+        .lock()
+        .unwrap()
+        .get_container_items(container_id)
+    else {
+        return Html(String::from("Failed to retrieve items"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("containers/containers.html")
+            .unwrap()
+            .render(
+                context!(container => containers, results => items, active_node_id => container_id),
+            )
+            .unwrap(),
+    )
 }
