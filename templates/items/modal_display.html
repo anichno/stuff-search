@@ -47,7 +47,10 @@
               ><span>Edit</span></button
             ><button
               class="btn btn-danger float-end"
-              type="button">
+              type="button"
+              hx-delete="/item/{{item_id}}"
+              hx-swap="outerHTML"
+              hx-target="this">
               <svg
                 class="bi bi-trash"
                 xmlns="http://www.w3.org/2000/svg"
