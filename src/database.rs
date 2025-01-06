@@ -497,6 +497,9 @@ fn fill_tree(cur_node: &mut ContainerTree, contained_by_map: &mut HashMap<i64, V
                 location: c.location,
                 containers: Vec::new(),
             }));
+        cur_node
+            .containers
+            .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         for sub_container in cur_node.containers.iter_mut() {
             fill_tree(sub_container, contained_by_map);
