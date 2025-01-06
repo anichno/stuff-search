@@ -388,6 +388,33 @@ impl Database {
             container_id: result.contained_by,
         })
     }
+
+    pub fn update_item(&self, item_id: i64, item_name: &str, item_description: &str) -> Result<()> {
+        // new embedding
+        let embedding = self
+            .model
+            .embed(vec![format!("{}\n{}", item_name, item_description)], None)?
+            .pop()
+            .unwrap();
+
+        // get related embedding_id
+        let embedding_id: i64 = self
+            .conn
+            .prepare("SELECT embedding_id FROM Items where id = ?")?
+            .query_row([item_id], |row| Ok(row.get(0)?))?;
+
+        // update embedding
+        self.conn
+            .prepare("UPDATE vec_items SET embedding = ? where rowid = ?")?
+            .execute(rusqlite::params![embedding.as_bytes(), embedding_id])?;
+
+        // update item record
+        self.conn
+            .prepare("UPDATE Items SET name = ?, description = ? WHERE id = ?")?
+            .execute(rusqlite::params![item_name, item_description, item_id])?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]

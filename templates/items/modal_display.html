@@ -1,5 +1,5 @@
 <div
-  class="modal-dialog modal-xl modal-dialog-centered"
+  class="modal-dialog modal-lg modal-dialog-centered"
   role="document">
   <div class="modal-content">
     <div class="modal-header">
@@ -31,7 +31,9 @@
           <div class="container">
             <button
               class="btn btn-warning float-start"
-              type="button">
+              type="button"
+              hx-get="/model/item/{{item_id}}/edit"
+              hx-target="#modals-here">
               <svg
                 class="bi bi-pencil"
                 xmlns="http://www.w3.org/2000/svg"

@@ -50,6 +50,13 @@ struct CreateContainer {
     parent_container_id: i64,
 }
 
+#[derive(Debug, Deserialize)]
+struct EditItem {
+    new_name: String,
+    new_location: String,
+    new_description: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv()?;
@@ -85,6 +92,8 @@ async fn main() -> Result<()> {
         .route("/modal/upload/{id}", get(modal_upload))
         .route("/upload", post(upload))
         .route("/modal/item/{id}/show", get(modal_item_show))
+        .route("/model/item/{id}/edit", get(get_modal_item_edit))
+        .route("/model/item/{id}/edit", post(handle_modal_item_edit))
         .route("/images/small/{id}/small.jpg", get(small_photo))
         .route("/images/large/{id}/large.jpg", get(large_photo))
         .layer(DefaultBodyLimit::max(usize::MAX))
@@ -423,4 +432,42 @@ async fn modal_item_show(
             .render(context!(item_id => item.id, item_name => item.name, item_location => item.container_name, item_description => item.description))
             .unwrap(),
     )
+}
+
+async fn get_modal_item_edit(
+    State(state): State<Arc<AppState>>,
+    Path(item_id): Path<i64>,
+) -> Html<String> {
+    let Ok(item) = state.database.lock().unwrap().get_item(item_id) else {
+        return Html(String::from("Failed to retrieve item"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("items/modal_edit.html")
+            .unwrap()
+            .render(context!(item_id => item.id, item_name => item.name, item_location => item.container_name, item_description => item.description))
+            .unwrap(),
+    )
+}
+
+async fn handle_modal_item_edit(
+    State(state): State<Arc<AppState>>,
+    Path(item_id): Path<i64>,
+    Form(edit_item): Form<EditItem>,
+) -> Html<String> {
+    state
+        .database
+        .lock()
+        .unwrap()
+        .update_item(item_id, &edit_item.new_name, &edit_item.new_description)
+        .unwrap();
+
+    Html(
+            TEMPLATES
+                .get_template("items/modal_display.html")
+                .unwrap()
+                .render(context!(item_id, item_name => edit_item.new_name, item_location => edit_item.new_location, item_description => edit_item.new_description))
+                .unwrap(),
+        )
 }
