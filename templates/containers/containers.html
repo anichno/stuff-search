@@ -141,12 +141,11 @@
 
   function handleDrop(event, container_id) {
     event.preventDefault();
+    event.stopPropagation();
     const item_id = event.dataTransfer.getData('int');
 
     // Remove drag-over styling
     event.target.closest('.droppable').classList.remove('drag-over');
-
-    console.log("Move item:", item_id, "to container:", container_id)
 
     // Send HTMX request to server
     htmx.ajax('POST', '/move/' + item_id + "/" + container_id, '#page-content');
