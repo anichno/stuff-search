@@ -1,6 +1,7 @@
 use std::{
     io::Read,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::Result;
@@ -17,7 +18,7 @@ use rayon::iter::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tracing::info;
+use tracing::{error, info};
 
 use crate::database::Database;
 
@@ -136,9 +137,16 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
                 .to_string();
 
                 info!("Starting openai request {}", i + 1);
-                let item_info = get_description(&client, &photo_b64)
-                    .await
-                    .expect("OpenAI request failed");
+                let mut item_info = None;
+                for retry in 0..10 {
+                    if let Ok(info) = get_description(&client, &photo_b64).await {
+                        item_info = Some(info);
+                        break;
+                    }
+                    error!("OpenAI request failed, retry {} of 10", retry + 1);
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+
                 info!("End openai request {}", i + 1);
                 item_info
             }));
@@ -149,17 +157,20 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
             .into_iter()
             .zip(openai_item_info.into_iter())
         {
-            let item_info = openai_info.await.unwrap();
-            db.lock()
-                .unwrap()
-                .insert_item(
-                    &item_info.name,
-                    &item_info.description,
-                    &resized_small,
-                    &resized_large,
-                    request.target_container,
-                )
-                .unwrap();
+            if let Some(item_info) = openai_info.await.unwrap() {
+                db.lock()
+                    .unwrap()
+                    .insert_item(
+                        &item_info.name,
+                        &item_info.description,
+                        &resized_small,
+                        &resized_large,
+                        request.target_container,
+                    )
+                    .unwrap();
+            } else {
+                error!("Failed to import");
+            }
         }
 
         db.lock()
