@@ -2,59 +2,106 @@
   <div class="row">
     <div class="col-md-4">
       {% macro render_node(node) %}
-      <li class="list-group-item droppable {% if node.id==active_node_id %}list-group-item-light active{% endif %}"
-        ondragover="event.preventDefault()" ondragenter="this.classList.add('drag-over')"
-        ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, {{node.id}})"
-        {% if node.id != 1 %}draggable="true" ondragstart="handleContainerDragStart(event, {{node.id}})" {% endif %}>
+      <li
+        class="list-group-item droppable {% if node.id==active_node_id %}list-group-item-light active{% endif %}"
+        ondragover="event.preventDefault()"
+        ondragenter="this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="handleDrop(event, {{node.id}})"
+        {%
+        if
+        node.id
+        !="1"
+        %}draggable="true"
+        ondragstart="handleContainerDragStart(event, {{node.id}})"
+        {%
+        endif
+        %}>
         {% if node.id==1 %}
-        <svg hx-get="/container/{{node.id}}" hx-target="#page-content" class="bi bi-house-fill"
-          xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+        <svg
+          hx-get="/container/{{node.id}}"
+          hx-target="#page-content"
+          class="bi bi-house-fill"
+          xmlns="http://www.w3.org/2000/svg"
+          width="1em"
+          height="1em"
+          fill="currentColor"
+          viewBox="0 0 16 16">
           <path
-            d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293z">
-          </path>
-          <path d="m8 3.293 6 6V13.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5V9.293l6-6Z"></path>
+            d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293z"></path>
+          <path
+            d="m8 3.293 6 6V13.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5V9.293l6-6Z"></path>
         </svg>
         {% else %} {% set container_name = node.name %} {% set container_id =
         node.id %} {% include "containers/container_single.html" %} {% endif %}
         {% if node.id == active_node_id %}
-        <span class="float-end"><svg class="bi bi-plus-square text-success" xmlns="http://www.w3.org/2000/svg"
-            width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16" style="width: 30px"
-            hx-get="/container/{{node.id}}/create" hx-target="#page-content">
+        <span class="float-end"
+          ><svg
+            class="bi bi-plus-square text-success"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            viewBox="0 0 16 16"
+            style="width: 30px"
+            hx-get="/container/{{node.id}}/create"
+            hx-target="#page-content">
             <path
-              d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z">
-            </path>
+              d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z"></path>
             <path
-              d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4">
-            </path>
+              d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4"></path>
           </svg>
           {% if node.id != 1 %}
-          <svg class="bi bi-pencil text-warning" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em"
-            fill="currentColor" viewBox="0 0 16 16" style="width: 30px" hx-get="/container/{{node.id}}/rename"
-            hx-target="#container-{{node.id}}" hx-swap="outerHTML">
+          <svg
+            class="bi bi-pencil text-warning"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            viewBox="0 0 16 16"
+            style="width: 30px"
+            hx-get="/container/{{node.id}}/rename"
+            hx-target="#container-{{node.id}}"
+            hx-swap="outerHTML">
             <path
-              d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z">
-            </path>
+              d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"></path>
           </svg>
-          <svg class="bi bi-upload text-warning btn-upload-success" xmlns="http://www.w3.org/2000/svg" width="1em"
-            height="1em" fill="currentColor" viewBox="0 0 16 16" style="width: 30px" hx-get="/modal/upload/{{node.id}}"
-            hx-target="#modals-here" hx-trigger="click" data-bs-toggle="modal" data-bs-target="#modals-here">
+          <svg
+            class="bi bi-upload text-warning btn-upload-success"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            viewBox="0 0 16 16"
+            style="width: 30px"
+            hx-get="/modal/upload/{{node.id}}"
+            hx-target="#modals-here"
+            hx-trigger="click"
+            data-bs-toggle="modal"
+            data-bs-target="#modals-here">
             <path
-              d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5">
-            </path>
+              d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5"></path>
             <path
-              d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z">
-            </path>
+              d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708z"></path>
           </svg>
           {% endif %} {% if node.id != 1 and not add_child %}
-          <svg class="bi bi-trash text-danger" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em"
-            fill="currentColor" viewBox="0 0 16 16" style="width: 30px" hx-delete="/container/{{node.id}}"
-            hx-target="#modals-here" hx-trigger="click" data-bs-toggle="modal" data-bs-target="#modals-here">
+          <svg
+            class="bi bi-trash text-danger"
+            xmlns="http://www.w3.org/2000/svg"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            viewBox="0 0 16 16"
+            style="width: 30px"
+            hx-delete="/container/{{node.id}}"
+            hx-target="#modals-here"
+            hx-trigger="click"
+            data-bs-toggle="modal"
+            data-bs-target="#modals-here">
             <path
-              d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z">
-            </path>
+              d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"></path>
             <path
-              d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z">
-            </path>
+              d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"></path>
           </svg>
           {% endif %}
         </span>
@@ -63,27 +110,54 @@
         <ul class="list-group">
           {% if node.id == active_node_id and add_child %}
           <li class="list-group-item">
-            <form hx-post="/container/create" hx-trigger="submit" hx-target="#page-content">
-              <input class="form-control" type="hidden" name="parent_container_id" value="{{node.id}}" /><input
-                class="form-control" type="text" placeholder="New Container Name" name="new_container_name" autofocus />
-              <div class="btn-group btn-group-sm" role="group">
-                <button class="btn btn-outline-success" type="submit">
-                  <svg class="bi bi-floppy" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em"
-                    fill="currentColor" viewBox="0 0 16 16">
+            <form
+              hx-post="/container/create"
+              hx-trigger="submit"
+              hx-target="#page-content">
+              <input
+                class="form-control"
+                type="hidden"
+                name="parent_container_id"
+                value="{{node.id}}" /><input
+                class="form-control"
+                type="text"
+                placeholder="New Container Name"
+                name="new_container_name"
+                autofocus />
+              <div
+                class="btn-group btn-group-sm"
+                role="group">
+                <button
+                  class="btn btn-outline-success"
+                  type="submit">
+                  <svg
+                    class="bi bi-floppy"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="1em"
+                    height="1em"
+                    fill="currentColor"
+                    viewBox="0 0 16 16">
                     <path d="M11 2H9v3h2z"></path>
                     <path
-                      d="M1.5 0h11.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 1 16 2.914V14.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 14.5v-13A1.5 1.5 0 0 1 1.5 0M1 1.5v13a.5.5 0 0 0 .5.5H2v-4.5A1.5 1.5 0 0 1 3.5 9h9a1.5 1.5 0 0 1 1.5 1.5V15h.5a.5.5 0 0 0 .5-.5V2.914a.5.5 0 0 0-.146-.353l-1.415-1.415A.5.5 0 0 0 13.086 1H13v4.5A1.5 1.5 0 0 1 11.5 7h-7A1.5 1.5 0 0 1 3 5.5V1H1.5a.5.5 0 0 0-.5.5m3 4a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V1H4zM3 15h10v-4.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5z">
-                    </path>
-                  </svg></button><button class="btn btn-outline-warning" type="button" hx-get="/container/{{node.id}}"
+                      d="M1.5 0h11.586a1.5 1.5 0 0 1 1.06.44l1.415 1.414A1.5 1.5 0 0 1 16 2.914V14.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 14.5v-13A1.5 1.5 0 0 1 1.5 0M1 1.5v13a.5.5 0 0 0 .5.5H2v-4.5A1.5 1.5 0 0 1 3.5 9h9a1.5 1.5 0 0 1 1.5 1.5V15h.5a.5.5 0 0 0 .5-.5V2.914a.5.5 0 0 0-.146-.353l-1.415-1.415A.5.5 0 0 0 13.086 1H13v4.5A1.5 1.5 0 0 1 11.5 7h-7A1.5 1.5 0 0 1 3 5.5V1H1.5a.5.5 0 0 0-.5.5m3 4a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V1H4zM3 15h10v-4.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5z"></path>
+                  </svg></button
+                ><button
+                  class="btn btn-outline-warning"
+                  type="button"
+                  hx-get="/container/{{node.id}}"
                   hx-target="#page-content">
-                  <svg class="bi bi-x-square" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em"
-                    fill="currentColor" viewBox="0 0 16 16" style="margin-right: 10px">
+                  <svg
+                    class="bi bi-x-square"
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="1em"
+                    height="1em"
+                    fill="currentColor"
+                    viewBox="0 0 16 16"
+                    style="margin-right: 10px">
                     <path
-                      d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z">
-                    </path>
+                      d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z"></path>
                     <path
-                      d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708">
-                    </path>
+                      d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"></path>
                   </svg>
                 </button>
               </div>
@@ -102,13 +176,23 @@
       </ul>
     </div>
     <div class="col-md-8">
-      <div class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3" id="container-results">
+      <div
+        class="row gy-4 row-cols-1 row-cols-md-2 row-cols-xl-3"
+        id="container-results">
         {% for result in results %}
         <div class="col">
-          <div class="draggable-item" draggable="true" ondragstart="handleItemDragStart(event, {{result.id}})"
-            hx-get="/modal/item/{{result.id}}/show" hx-target="#modals-here" hx-trigger="click" data-bs-toggle="modal"
+          <div
+            class="draggable-item"
+            draggable="true"
+            ondragstart="handleItemDragStart(event, {{result.id}})"
+            hx-get="/modal/item/{{result.id}}/show"
+            hx-target="#modals-here"
+            hx-trigger="click"
+            data-bs-toggle="modal"
             data-bs-target="#modals-here">
-            <img class="rounded img-fluid d-block w-100 fit-cover" src="/images/small/{{result.id}}/small.jpg" />
+            <img
+              class="rounded img-fluid d-block w-100 fit-cover"
+              src="/images/small/{{result.id}}/small.jpg" />
             <div class="py-4 text-center">
               <h4>{{result.name}}</h4>
             </div>
@@ -136,34 +220,50 @@
 
 <script>
   function handleItemDragStart(event, item_id) {
-    event.dataTransfer.setData('item_id', item_id);
-    event.dataTransfer.setData('type', 'item');
+    event.dataTransfer.setData("item_id", item_id);
+    event.dataTransfer.setData("type", "item");
   }
 
   function handleContainerDragStart(event, container_id) {
     event.stopPropagation();
-    event.dataTransfer.setData('container_id', container_id);
-    event.dataTransfer.setData('type', 'container');
+    event.dataTransfer.setData("container_id", container_id);
+    event.dataTransfer.setData("type", "container");
   }
 
   function handleDrop(event, target_container_id) {
     event.preventDefault();
     event.stopPropagation();
-    const item_id = event.dataTransfer.getData('item_id');
-    const container_id = event.dataTransfer.getData('container_id');
-    const type = event.dataTransfer.getData('type');
+    const item_id = event.dataTransfer.getData("item_id");
+    const container_id = event.dataTransfer.getData("container_id");
+    const type = event.dataTransfer.getData("type");
 
     // Remove drag-over styling
-    event.target.closest('.droppable').classList.remove('drag-over');
+    event.target.closest(".droppable").classList.remove("drag-over");
 
-    console.log("item_id:", item_id, "container_id:", container_id, "type:", type, "target:", target_container_id)
+    console.log(
+      "item_id:",
+      item_id,
+      "container_id:",
+      container_id,
+      "type:",
+      type,
+      "target:",
+      target_container_id
+    );
 
     // Send HTMX request to server
     if (type === "item") {
-      htmx.ajax('POST', '/item/move/' + item_id + "/" + target_container_id, '#page-content');
+      htmx.ajax(
+        "POST",
+        "/item/move/" + item_id + "/" + target_container_id,
+        "#page-content"
+      );
     } else if (type === "container") {
-      htmx.ajax('POST', '/container/move/' + container_id + "/" + target_container_id, '#page-content');
+      htmx.ajax(
+        "POST",
+        "/container/move/" + container_id + "/" + target_container_id,
+        "#page-content"
+      );
     }
-
   }
 </script>

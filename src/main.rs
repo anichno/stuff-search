@@ -107,9 +107,7 @@ async fn main() -> Result<()> {
         .with_state(Arc::clone(&shared_state))
         .nest_service("/assets", tower_http::services::ServeDir::new("assets"));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3001")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     info!("Listening");
     axum::serve(listener, app).await.unwrap();
 
