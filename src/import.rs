@@ -66,27 +66,23 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
         let mut image_queue = Vec::new();
 
         // try to process as zip
-        if let Ok(mut archive) = zip::ZipArchive::new(&mut cursor) {
-            for i in 0..archive.len() {
-                info!("Extracting {} of {}", i + 1, archive.len());
-                let Ok(photo) = archive.by_index(i) else {
-                    db.lock()
-                        .unwrap()
-                        .cancel_import(log_id, Some("invalid file in zip"))
-                        .unwrap();
-                    continue 'outer;
-                };
-
-                let photo_data: Vec<u8> = photo.bytes().map(|b| b.unwrap()).collect();
-                let Ok(image) = image::load_from_memory(&photo_data) else {
-                    db.lock()
-                        .unwrap()
-                        .cancel_import(log_id, Some("file not an image"))
-                        .unwrap();
-                    continue 'outer;
-                };
-                image_queue.push(image);
-            }
+        if zip::ZipArchive::new(&mut cursor).is_ok() {
+            let archive = zip::ZipArchive::new(cursor).unwrap();
+            image_queue = (0..archive.len())
+                .into_par_iter()
+                .map(|i| {
+                    info!("Extracting {} of {}", i + 1, archive.len());
+                    let mut archive = archive.clone();
+                    if let Ok(photo) = archive.by_index(i) {
+                        let photo_data: Vec<u8> = photo.bytes().map(|b| b.unwrap()).collect();
+                        if let Ok(image) = image::load_from_memory(&photo_data) {
+                            info!("Successfully extracted {}", i + 1);
+                            return Some(image);
+                        }
+                    }
+                    None
+                })
+                .collect();
         } else {
             // try to process as image
             let Ok(image) = image::load_from_memory(&cursor.into_inner()) else {
@@ -97,10 +93,11 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
                 continue 'outer;
             };
 
-            image_queue.push(image);
+            image_queue.push(Some(image));
         }
 
-        let queue_len = image_queue.len();
+        let image_queue: Vec<DynamicImage> = image_queue.into_iter().filter_map(|i| i).collect();
+
         let image_queue = Arc::new(image_queue);
         let resize_image_queue = image_queue.clone();
         let resize_job = tokio::task::spawn_blocking(move || {
@@ -109,8 +106,8 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
                 .enumerate()
                 .map(|(i, image)| {
                     info!("Starting resize {}", i + 1);
-                    let photo_resized_large = downscale_image(&image, 1024);
-                    let photo_resized_small = downscale_image(&image, 512);
+                    let photo_resized_large = downscale_image(image, 1024);
+                    let photo_resized_small = downscale_image(image, 512);
                     info!("Done resize {}", i + 1);
                     (photo_resized_small, photo_resized_large)
                 })

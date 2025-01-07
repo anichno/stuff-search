@@ -1,13 +1,13 @@
 use std::{
     collections::HashMap,
-    fmt::{Debug, Write},
+    fmt::Debug,
     sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
 use axum::{
     body::Bytes,
-    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State},
     http::StatusCode,
     response::{Html, Response},
     routing::{delete, get, post},
@@ -15,9 +15,7 @@ use axum::{
 };
 use minijinja::context;
 use serde::Deserialize;
-use tokio::io::AsyncWriteExt;
-use tower_http::limit::RequestBodyLimitLayer;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod database;
@@ -145,7 +143,7 @@ async fn search(
     Form(query): Form<HashMap<String, String>>,
 ) -> Html<String> {
     let results = if let Some(query) = query.get("search") {
-        match state.database.lock().unwrap().query(&query) {
+        match state.database.lock().unwrap().query(query) {
             Ok(results) => results,
             Err(e) => {
                 error!("{}", e);
@@ -319,7 +317,7 @@ async fn handle_container_rename(
         .lock()
         .unwrap()
         .set_container_name(
-            &new_container_name.get("new_container_name").unwrap(),
+            new_container_name.get("new_container_name").unwrap(),
             container_id,
         )
         .unwrap();

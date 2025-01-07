@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::{bail, Result};
 use fastembed::TextEmbedding;
@@ -11,7 +11,6 @@ pub struct ItemResult {
     pub id: i64,
     pub name: String,
     pub description: String,
-    // pub small_photo: Vec<u8>,
     pub similarity: f64,
     pub container_name: String,
     pub container_id: i64,
@@ -40,6 +39,7 @@ impl Database {
     #[tracing::instrument]
     pub fn init() -> Result<Self> {
         unsafe {
+            #[allow(clippy::missing_transmute_annotations)]
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
                 sqlite_vec::sqlite3_vec_init as *const (),
             )));
@@ -283,7 +283,7 @@ impl Database {
         let image: Vec<u8> = self
             .conn
             .prepare("SELECT small_photo FROM Items where id = ?")?
-            .query_row([item_id], |row| Ok(row.get(0)?))?;
+            .query_row([item_id], |row| Ok(row.get(0)))??;
 
         Ok(image)
     }
@@ -293,7 +293,7 @@ impl Database {
         let image: Vec<u8> = self
             .conn
             .prepare("SELECT large_photo FROM Items where id = ?")?
-            .query_row([item_id], |row| Ok(row.get(0)?))?;
+            .query_row([item_id], |row| Ok(row.get(0)))??;
 
         Ok(image)
     }
@@ -316,10 +316,8 @@ impl Database {
                 if let Ok(row) = row {
                     if row.id == 1 {
                         root = Some(row);
-                    } else {
-                        if let Some(contained_by) = row.contained_by {
-                            containers.entry(contained_by).or_default().push(row)
-                        }
+                    } else if let Some(contained_by) = row.contained_by {
+                        containers.entry(contained_by).or_default().push(row)
                     }
                 }
             });
@@ -369,7 +367,7 @@ impl Database {
         let name: String = self
             .conn
             .prepare("SELECT name FROM containers WHERE id = ?")?
-            .query_row([container_id], |row| Ok(row.get(0)?))?;
+            .query_row([container_id], |row| Ok(row.get(0)))??;
 
         Ok(name)
     }
@@ -388,7 +386,7 @@ impl Database {
         let parent: i64 = self
             .conn
             .prepare("SELECT contained_by FROM containers WHERE id = ?")?
-            .query_row([container_id], |row| Ok(row.get(0)?))?;
+            .query_row([container_id], |row| Ok(row.get(0)))??;
 
         Ok(parent)
     }
@@ -400,10 +398,10 @@ impl Database {
             self.conn
                 .prepare("SELECT id FROM containers WHERE contained_by = ?")?
                 .query([container_id])?,
-        ) {
-            if let Ok(child) = child_row {
-                children.push(child);
-            }
+        )
+        .flatten()
+        {
+            children.push(child_row);
         }
 
         Ok(children)
@@ -488,7 +486,7 @@ impl Database {
         let embedding_id: i64 = self
             .conn
             .prepare("SELECT embedding_id FROM Items where id = ?")?
-            .query_row([item_id], |row| Ok(row.get(0)?))?;
+            .query_row([item_id], |row| Ok(row.get(0)))??;
 
         // update embedding
         self.conn
@@ -509,7 +507,7 @@ impl Database {
         let embedding_id: i64 = self
             .conn
             .prepare("SELECT embedding_id FROM Items where id = ?")?
-            .query_row([item_id], |row| Ok(row.get(0)?))?;
+            .query_row([item_id], |row| Ok(row.get(0)))??;
 
         // delete embedding
         self.conn
