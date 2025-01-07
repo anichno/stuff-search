@@ -45,13 +45,24 @@ impl Database {
             )));
         }
 
+        let db_name = if std::env::var("DEMO").is_ok() {
+            if std::fs::exists("storage.demo.db").unwrap() {
+                std::fs::copy("storage.demo.db", "storage.demo.db.tmp").unwrap();
+                "storage.demo.db.tmp"
+            } else {
+                "storage.demo.db"
+            }
+        } else {
+            "storage.db"
+        };
+
         let conn = if let Ok(conn) = rusqlite::Connection::open_with_flags(
-            "./storage.db",
+            db_name,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ) {
             conn
         } else {
-            let conn = rusqlite::Connection::open("./storage.db")?;
+            let conn = rusqlite::Connection::open(db_name)?;
 
             conn.execute(
                 "CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[1024])",
@@ -135,7 +146,7 @@ impl Database {
         Ok(Self { conn, model })
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(skip(small_photo, large_photo))]
     pub fn insert_item(
         &self,
         name: &str,

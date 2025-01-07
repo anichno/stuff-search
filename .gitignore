@@ -9,3 +9,4 @@ Photos-001
 *.db
 *.bak
 bootstrap_studio_generated/
+*.tmp
