@@ -4,8 +4,8 @@
       {% macro render_node(node) %}
       <li class="list-group-item droppable {% if node.id==active_node_id %}list-group-item-light active{% endif %}"
         ondragover="event.preventDefault()" ondragenter="this.classList.add('drag-over')"
-        ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, {{node.id}})" {% if node.id !=1
-        %}draggable="true" ondragstart="handleContainerDragStart(event, {{node.id}})" {% endif %}>
+        ondragleave="this.classList.remove('drag-over')" ondrop="handleDrop(event, {{node.id}})"
+        {% if node.id != 1 %}draggable="true" ondragstart="handleContainerDragStart(event, {{node.id}})" {% endif %}>
         {% if node.id==1 %}
         <svg hx-get="/container/{{node.id}}" hx-target="#page-content" class="bi bi-house-fill"
           xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
