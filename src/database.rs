@@ -1,4 +1,4 @@
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, fmt::Debug};
 
 use anyhow::{bail, Result};
 use fastembed::TextEmbedding;
@@ -30,7 +30,14 @@ pub struct Database {
     model: TextEmbedding,
 }
 
+impl Debug for Database {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Database").finish()
+    }
+}
+
 impl Database {
+    #[tracing::instrument]
     pub fn init() -> Result<Self> {
         unsafe {
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
@@ -128,6 +135,7 @@ impl Database {
         Ok(Self { conn, model })
     }
 
+    #[tracing::instrument]
     pub fn insert_item(
         &self,
         name: &str,
@@ -156,6 +164,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn query(&self, query: &str) -> Result<Vec<ItemResult>> {
         let start = std::time::Instant::now();
         let query_embedding = self
@@ -223,6 +232,7 @@ impl Database {
         Ok(item_results)
     }
 
+    #[tracing::instrument]
     pub fn log_new_import(&self, source: &str, status: &str, target_container: i64) -> Result<i64> {
         let mut stmt = self
             .conn
@@ -236,6 +246,7 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    #[tracing::instrument]
     pub fn cancel_import(&self, import_id: i64, reason: Option<&str>) -> Result<()> {
         let reason = reason.unwrap_or("FAILED");
         let mut stmt = self
@@ -246,6 +257,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn update_import(&self, import_id: i64, status: &str) -> Result<()> {
         let mut stmt = self
             .conn
@@ -255,6 +267,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn get_small_image(&self, item_id: i64) -> Result<Vec<u8>> {
         let image: Vec<u8> = self
             .conn
@@ -264,6 +277,7 @@ impl Database {
         Ok(image)
     }
 
+    #[tracing::instrument]
     pub fn get_large_image(&self, item_id: i64) -> Result<Vec<u8>> {
         let image: Vec<u8> = self
             .conn
@@ -273,6 +287,7 @@ impl Database {
         Ok(image)
     }
 
+    #[tracing::instrument]
     pub fn get_container_tree(&self) -> Result<ContainerTree> {
         let mut containers: HashMap<i64, Vec<ContainerRow>> = HashMap::new();
         let mut root = None;
@@ -314,6 +329,7 @@ impl Database {
         Ok(root)
     }
 
+    #[tracing::instrument]
     pub fn get_container_items(&self, container_id: i64) -> Result<Vec<ItemResult>> {
         let mut item_results = Vec::new();
         self.conn
@@ -337,6 +353,7 @@ impl Database {
         Ok(item_results)
     }
 
+    #[tracing::instrument]
     pub fn get_container_name(&self, container_id: i64) -> Result<String> {
         let name: String = self
             .conn
@@ -346,6 +363,7 @@ impl Database {
         Ok(name)
     }
 
+    #[tracing::instrument]
     pub fn set_container_name(&self, container_name: &str, container_id: i64) -> Result<()> {
         self.conn
             .prepare("UPDATE containers SET name = ? WHERE id = ?")?
@@ -354,6 +372,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn get_container_parent(&self, container_id: i64) -> Result<i64> {
         let parent: i64 = self
             .conn
@@ -363,6 +382,7 @@ impl Database {
         Ok(parent)
     }
 
+    #[tracing::instrument]
     pub fn get_container_children(&self, container_id: i64) -> Result<Vec<i64>> {
         let mut children = Vec::new();
         for child_row in serde_rusqlite::from_rows::<i64>(
@@ -378,6 +398,7 @@ impl Database {
         Ok(children)
     }
 
+    #[tracing::instrument]
     /// This will recursively delete all containers and items
     pub fn delete_container(&self, container_id: i64) -> Result<()> {
         let mut containers = vec![container_id];
@@ -397,6 +418,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn add_child_container(&self, name: &str, parent_id: i64) -> Result<()> {
         let mut stmt = self
             .conn
@@ -406,6 +428,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn get_item(&self, item_id: i64) -> Result<ItemResult> {
         #[derive(Debug, Deserialize)]
         struct QueryResult {
@@ -432,6 +455,7 @@ impl Database {
         })
     }
 
+    #[tracing::instrument]
     pub fn update_item(&self, item_id: i64, item_name: &str, item_description: &str) -> Result<()> {
         // new embedding
         let embedding = self
@@ -459,6 +483,7 @@ impl Database {
         Ok(())
     }
 
+    #[tracing::instrument]
     pub fn delete_item(&self, item_id: i64) -> Result<()> {
         // get related embedding_id
         let embedding_id: i64 = self
@@ -487,6 +512,8 @@ struct ContainerRow {
     location: Option<String>,
     contained_by: Option<i64>,
 }
+
+#[tracing::instrument]
 fn fill_tree(cur_node: &mut ContainerTree, contained_by_map: &mut HashMap<i64, Vec<ContainerRow>>) {
     if let Some(containers) = contained_by_map.remove(&cur_node.id) {
         cur_node

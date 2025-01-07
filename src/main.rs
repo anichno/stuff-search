@@ -113,6 +113,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[tracing::instrument]
 async fn serve_index() -> Response {
     Response::new(
         tokio::fs::read("templates/index.html")
@@ -181,6 +182,7 @@ async fn large_photo(
     }
 }
 
+#[tracing::instrument]
 async fn container(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> Html<String> {
     let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
@@ -199,6 +201,7 @@ async fn container(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> H
     )
 }
 
+#[tracing::instrument]
 async fn container_create_child(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
@@ -220,6 +223,7 @@ async fn container_create_child(
     )
 }
 
+#[tracing::instrument]
 async fn create_container(
     State(state): State<Arc<AppState>>,
     Form(payload): Form<CreateContainer>,
@@ -253,6 +257,7 @@ async fn create_container(
     )
 }
 
+#[tracing::instrument]
 async fn get_container_rename(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
@@ -275,6 +280,7 @@ async fn get_container_rename(
     )
 }
 
+#[tracing::instrument]
 async fn get_container_rename_cancel(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
@@ -297,6 +303,7 @@ async fn get_container_rename_cancel(
     )
 }
 
+#[tracing::instrument]
 async fn handle_container_rename(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
@@ -336,6 +343,7 @@ async fn handle_container_rename(
     )
 }
 
+#[tracing::instrument]
 async fn modal_upload(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
@@ -358,6 +366,7 @@ async fn modal_upload(
     )
 }
 
+#[tracing::instrument]
 async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) -> Html<String> {
     let mut container_id = None;
     let mut file = None;
@@ -421,6 +430,7 @@ async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) ->
     ))
 }
 
+#[tracing::instrument]
 async fn modal_item_show(
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<i64>,
@@ -438,6 +448,7 @@ async fn modal_item_show(
     )
 }
 
+#[tracing::instrument]
 async fn get_modal_item_edit(
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<i64>,
@@ -455,6 +466,7 @@ async fn get_modal_item_edit(
     )
 }
 
+#[tracing::instrument]
 async fn handle_modal_item_edit(
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<i64>,
@@ -476,6 +488,7 @@ async fn handle_modal_item_edit(
         )
 }
 
+#[tracing::instrument]
 async fn delete_item_unconfirmed(Path(item_id): Path<i64>) -> Html<String> {
     Html(
         TEMPLATES
@@ -486,6 +499,7 @@ async fn delete_item_unconfirmed(Path(item_id): Path<i64>) -> Html<String> {
     )
 }
 
+#[tracing::instrument]
 async fn delete_item(State(state): State<Arc<AppState>>, Path(item_id): Path<i64>) -> Html<String> {
     // get item container
     let container_id = state
@@ -524,6 +538,7 @@ async fn delete_item(State(state): State<Arc<AppState>>, Path(item_id): Path<i64
     )
 }
 
+#[tracing::instrument]
 async fn delete_container_unconfirmed(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
@@ -544,6 +559,7 @@ async fn delete_container_unconfirmed(
     )
 }
 
+#[tracing::instrument]
 async fn delete_container(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
