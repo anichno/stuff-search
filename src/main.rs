@@ -98,6 +98,7 @@ async fn main() -> Result<()> {
         .route("/model/item/{id}/edit", post(handle_modal_item_edit))
         .route("/item/{i}", delete(delete_item_unconfirmed))
         .route("/item/{i}/confirm", delete(delete_item))
+        .route("/move/{item_id}/{container_id}", post(move_item))
         .route("/images/small/{id}/small.jpg", get(small_photo))
         .route("/images/large/{id}/large.jpg", get(large_photo))
         .layer(DefaultBodyLimit::max(usize::MAX))
@@ -582,6 +583,33 @@ async fn delete_container(
             .get_template("containers/containers.html")
             .unwrap()
             .render(context!(container => containers, results => items, active_node_id => container_parent))
+            .unwrap(),
+    )
+}
+
+#[tracing::instrument]
+async fn move_item(
+    State(state): State<Arc<AppState>>,
+    Path((item_id, container_id)): Path<(i64, i64)>,
+) -> Html<String> {
+    let database = state.database.lock().unwrap();
+
+    let current_container = database.get_item(item_id).unwrap().container_id;
+    database.move_item(item_id, container_id).unwrap();
+
+    let Ok(containers) = database.get_container_tree() else {
+        return Html(String::from("Failed to retrieve containers"));
+    };
+
+    let Ok(items) = database.get_container_items(current_container) else {
+        return Html(String::from("Failed to retrieve items"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("containers/containers.html")
+            .unwrap()
+            .render(context!(container => containers, results => items, active_node_id => current_container))
             .unwrap(),
     )
 }

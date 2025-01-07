@@ -514,6 +514,15 @@ impl Database {
 
         Ok(())
     }
+
+    #[tracing::instrument]
+    pub fn move_item(&self, item_id: i64, container_id: i64) -> Result<()> {
+        self.conn
+            .prepare("UPDATE Items SET contained_by = ? where id = ?")?
+            .execute([container_id, item_id])?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
