@@ -98,7 +98,11 @@ async fn main() -> Result<()> {
         .route("/model/item/{id}/edit", post(handle_modal_item_edit))
         .route("/item/{i}", delete(delete_item_unconfirmed))
         .route("/item/{i}/confirm", delete(delete_item))
-        .route("/move/{item_id}/{container_id}", post(move_item))
+        .route("/item/move/{item_id}/{container_id}", post(move_item))
+        .route(
+            "/container/move/{container_source_id}/{container_target_id}",
+            post(move_container),
+        )
         .route("/images/small/{id}/small.jpg", get(small_photo))
         .route("/images/large/{id}/large.jpg", get(large_photo))
         .layer(DefaultBodyLimit::max(usize::MAX))
@@ -595,7 +599,10 @@ async fn move_item(
     let database = state.database.lock().unwrap();
 
     let current_container = database.get_item(item_id).unwrap().container_id;
-    database.move_item(item_id, container_id).unwrap();
+
+    if container_id != 1 {
+        database.move_item(item_id, container_id).unwrap();
+    }
 
     let Ok(containers) = database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
@@ -610,6 +617,56 @@ async fn move_item(
             .get_template("containers/containers.html")
             .unwrap()
             .render(context!(container => containers, results => items, active_node_id => current_container))
+            .unwrap(),
+    )
+}
+
+#[tracing::instrument]
+async fn move_container(
+    State(state): State<Arc<AppState>>,
+    Path((container_source_id, container_target_id)): Path<(i64, i64)>,
+) -> Html<String> {
+    let database = state.database.lock().unwrap();
+
+    if container_source_id != container_target_id {
+        let parent = database.get_container_parent(container_source_id).unwrap();
+
+        // check if target is child of this one
+        let mut is_child = false;
+        let mut children = database
+            .get_container_children(container_source_id)
+            .unwrap();
+        while let Some(child) = children.pop() {
+            if child == container_target_id {
+                is_child = true;
+                break;
+            }
+            children.extend(database.get_container_children(child).unwrap());
+        }
+
+        if is_child {
+            database
+                .move_container(container_target_id, parent)
+                .unwrap();
+        }
+        database
+            .move_container(container_source_id, container_target_id)
+            .unwrap();
+    }
+
+    let Ok(containers) = database.get_container_tree() else {
+        return Html(String::from("Failed to retrieve containers"));
+    };
+
+    let Ok(items) = database.get_container_items(container_source_id) else {
+        return Html(String::from("Failed to retrieve items"));
+    };
+
+    Html(
+        TEMPLATES
+            .get_template("containers/containers.html")
+            .unwrap()
+            .render(context!(container => containers, results => items, active_node_id => container_source_id))
             .unwrap(),
     )
 }

@@ -440,6 +440,15 @@ impl Database {
     }
 
     #[tracing::instrument]
+    pub fn move_container(&self, container_source_id: i64, container_target_id: i64) -> Result<()> {
+        self.conn
+            .prepare("UPDATE containers SET contained_by = ? where id = ?")?
+            .execute([container_target_id, container_source_id])?;
+
+        Ok(())
+    }
+
+    #[tracing::instrument]
     pub fn get_item(&self, item_id: i64) -> Result<ItemResult> {
         #[derive(Debug, Deserialize)]
         struct QueryResult {
