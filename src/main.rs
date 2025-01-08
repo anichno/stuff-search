@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    io::{Seek, Write},
     sync::{Arc, Mutex},
 };
 
@@ -17,6 +18,7 @@ use minijinja::context;
 use serde::Deserialize;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use zerocopy::IntoBytes;
 
 mod database;
 mod import;
@@ -380,7 +382,10 @@ async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) ->
             "file" => {
                 file_name = field.file_name().map(|s| s.to_string());
                 if let Ok(bytes) = field.bytes().await {
-                    file = Some(bytes.to_vec());
+                    let mut tmpfile = tempfile::tempfile().unwrap();
+                    tmpfile.write_all(bytes.as_bytes()).unwrap();
+                    tmpfile.seek(std::io::SeekFrom::Start(0)).unwrap();
+                    file = Some(tmpfile);
                 }
             }
             "container" => {

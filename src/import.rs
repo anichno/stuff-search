@@ -1,10 +1,10 @@
 use std::{
-    io::Read,
+    io::{BufReader, BufWriter, Read, Seek, Write},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_openai::types::{
     ChatCompletionRequestMessageContentPartImageArgs,
     ChatCompletionRequestMessageContentPartTextArgs, ChatCompletionRequestSystemMessage,
@@ -12,9 +12,7 @@ use async_openai::types::{
     ResponseFormat, ResponseFormatJsonSchema,
 };
 use image::DynamicImage;
-use rayon::iter::{
-    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator, ParallelIterator,
-};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -24,7 +22,7 @@ use crate::database::Database;
 
 pub struct ImportRequest {
     pub source: String,
-    pub file: Vec<u8>,
+    pub file: std::fs::File,
     pub target_container: i64,
 }
 
@@ -53,51 +51,109 @@ impl Importer {
     }
 }
 
+struct ImageFileReader(Mutex<std::fs::File>);
+
+impl ImageFileReader {
+    fn new(mut file: std::fs::File) -> Result<Self> {
+        let photo_file_buffered = BufReader::new(file.try_clone().unwrap());
+
+        if let Ok(image_reader) = image::ImageReader::new(photo_file_buffered).with_guessed_format()
+        {
+            if image_reader.decode().is_ok() {
+                file.seek(std::io::SeekFrom::Start(0)).unwrap();
+                return Ok(Self(Mutex::new(file)));
+            } else {
+                bail!("Failed to decode");
+            }
+        } else {
+            bail!("Failed to build image reader");
+        }
+    }
+    fn to_image(&self) -> DynamicImage {
+        let inner = self.0.lock().unwrap();
+        let buf_reader = BufReader::new(inner.try_clone().unwrap());
+        let image = image::ImageReader::new(buf_reader)
+            .with_guessed_format()
+            .unwrap()
+            .decode()
+            .unwrap();
+        inner
+            .try_clone()
+            .unwrap()
+            .seek(std::io::SeekFrom::Start(0))
+            .unwrap();
+
+        image
+    }
+}
+
+impl From<ImageFileReader> for Vec<u8> {
+    fn from(value: ImageFileReader) -> Self {
+        let mut photo_data = Vec::new();
+        value
+            .to_image()
+            .to_rgb8()
+            .write_to(
+                &mut std::io::Cursor::new(&mut photo_data),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+
+        photo_data
+    }
+}
+
 async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64, ImportRequest)>) {
     // OpenAI Client
     let client = async_openai::Client::new();
 
-    'outer: while let Some((log_id, request)) = rx.recv().await {
+    while let Some((log_id, request)) = rx.recv().await {
         info!("New file in queue");
         db.lock()
             .unwrap()
             .update_import(log_id, "Starting")
             .unwrap();
-        let mut cursor = std::io::Cursor::new(request.file);
-        let mut image_queue = Vec::new();
+        let mut image_queue: Vec<ImageFileReader> = Vec::new();
 
         // try to process as zip
-        if zip::ZipArchive::new(&mut cursor).is_ok() {
-            let archive = zip::ZipArchive::new(cursor).unwrap();
-            image_queue = (0..archive.len())
-                .into_par_iter()
-                .map(|i| {
-                    info!("Extracting {} of {}", i + 1, archive.len());
-                    let mut archive = archive.clone();
-                    if let Ok(photo) = archive.by_index(i) {
-                        let photo_data: Vec<u8> = photo.bytes().map(|b| b.unwrap()).collect();
-                        if let Ok(image) = image::load_from_memory(&photo_data) {
-                            info!("Successfully extracted {}", i + 1);
-                            return Some(image);
+        if let Ok(mut archive) = zip::ZipArchive::new(&request.file) {
+            for i in 0..archive.len() {
+                info!("Extracting {} of {}", i + 1, archive.len());
+                if let Ok(photo) = archive.by_index(i) {
+                    let photo_name = photo.name().to_owned();
+                    if photo.is_file() {
+                        let photo_file = tempfile::tempfile().unwrap();
+                        let mut photo_file = BufWriter::new(photo_file);
+                        for byte in photo.bytes() {
+                            photo_file.write_all(&[byte.unwrap()]).unwrap()
                         }
+                        photo_file.flush().unwrap();
+                        let mut photo_file = photo_file.into_inner().unwrap();
+                        photo_file.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+                        match ImageFileReader::new(photo_file) {
+                            Ok(photo_file) => image_queue.push(photo_file),
+                            Err(e) => error!(
+                                "Encountered: {} on {} ({})",
+                                e.to_string(),
+                                i + 1,
+                                photo_name
+                            ),
+                        }
+                    } else {
+                        error!("Entry {} is not a file ({})", i + 1, photo_name);
                     }
-                    None
-                })
-                .collect();
+                } else {
+                    error!("Failed to extract {}", i + 1);
+                }
+            }
         } else {
             // try to process as image
-            let Ok(image) = image::load_from_memory(&cursor.into_inner()) else {
-                db.lock()
-                    .unwrap()
-                    .cancel_import(log_id, Some("file not an image"))
-                    .unwrap();
-                continue 'outer;
-            };
-
-            image_queue.push(Some(image));
+            match ImageFileReader::new(request.file) {
+                Ok(photo_file) => image_queue.push(photo_file),
+                Err(e) => error!("{}", e.to_string()),
+            }
         }
-
-        let image_queue: Vec<DynamicImage> = image_queue.into_iter().filter_map(|i| i).collect();
 
         let image_queue = Arc::new(image_queue);
         let resize_image_queue = image_queue.clone();
@@ -105,14 +161,14 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
             resize_image_queue
                 .par_iter()
                 .enumerate()
-                .map(|(i, image)| {
+                .map(|(i, image_reader)| {
                     info!("Starting resize {}", i + 1);
-                    let photo_resized_large = downscale_image(image, 1024);
-                    let photo_resized_small = downscale_image(image, 512);
+                    let photo_resized_large = downscale_image(&image_reader, 1024);
+                    let photo_resized_small = downscale_image(&image_reader, 512);
                     info!("Done resize {}", i + 1);
                     (photo_resized_small, photo_resized_large)
                 })
-                .collect::<Vec<(Vec<u8>, Vec<u8>)>>()
+                .collect::<Vec<(ImageFileReader, ImageFileReader)>>()
         });
 
         let mut openai_item_info = Vec::new();
@@ -123,6 +179,7 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
             openai_item_info.push(tokio::spawn(async move {
                 let mut photo_data = Vec::new();
                 openai_image_queue[i]
+                    .to_image()
                     .to_rgb8()
                     .write_to(
                         &mut std::io::Cursor::new(&mut photo_data),
@@ -158,6 +215,8 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
             .zip(openai_item_info.into_iter())
         {
             if let Some(item_info) = openai_info.await.unwrap() {
+                let resized_small: Vec<u8> = resized_small.into();
+                let resized_large: Vec<u8> = resized_large.into();
                 db.lock()
                     .unwrap()
                     .insert_item(
@@ -271,20 +330,24 @@ fn calculate_new_dimensions(width: u32, height: u32, max_dimension: u32) -> (u32
     }
 }
 
-fn downscale_image(image: &DynamicImage, max_dim: u32) -> Vec<u8> {
+fn downscale_image(image_file: &ImageFileReader, max_dim: u32) -> ImageFileReader {
+    let image = image_file.to_image();
+
     // Resize image
     let (width, height) = (image.width(), image.height());
     let (new_width, new_height) = calculate_new_dimensions(width, height, max_dim);
     let resized_img =
         image.resize_exact(new_width, new_height, image::imageops::FilterType::Triangle);
 
-    let mut data = Vec::new();
+    let outfile = tempfile::tempfile().unwrap();
+    let mut buffered_outfile = BufWriter::new(outfile);
     resized_img
         .to_rgb8()
-        .write_to(
-            &mut std::io::Cursor::new(&mut data),
-            image::ImageFormat::Jpeg,
-        )
+        .write_to(&mut buffered_outfile, image::ImageFormat::Jpeg)
         .unwrap();
-    data
+
+    let mut outfile = buffered_outfile.into_inner().unwrap();
+    outfile.seek(std::io::SeekFrom::Start(0)).unwrap();
+
+    ImageFileReader(Mutex::new(outfile))
 }
