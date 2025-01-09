@@ -56,13 +56,18 @@ impl Database {
             "storage.db"
         };
 
+        #[cfg(feature = "docker")]
+        let base_path = std::path::Path::new("/data");
+        #[cfg(not(feature = "docker"))]
+        let base_path = std::path::Path::new(".");
+
         let conn = if let Ok(conn) = rusqlite::Connection::open_with_flags(
-            db_name,
+            base_path.join(db_name),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         ) {
             conn
         } else {
-            let conn = rusqlite::Connection::open(db_name)?;
+            let conn = rusqlite::Connection::open(base_path.join(db_name))?;
 
             conn.execute(
                 "CREATE VIRTUAL TABLE vec_items USING vec0(embedding float[1024])",
@@ -155,9 +160,13 @@ impl Database {
 
         info!("sqlite_version={sqlite_version}, vec_version={vec_version}");
 
-        let model = TextEmbedding::try_new(fastembed::InitOptions::new(
-            fastembed::EmbeddingModel::MxbaiEmbedLargeV1,
-        ))?;
+        let fastembed_opts =
+            fastembed::InitOptions::new(fastembed::EmbeddingModel::MxbaiEmbedLargeV1);
+
+        #[cfg(feature = "docker")]
+        let fastembed_opts = fastembed_opts.with_cache_dir(std::path::PathBuf::from("/cache"));
+
+        let model = TextEmbedding::try_new(fastembed_opts)?;
 
         Ok(Self { conn, model })
     }

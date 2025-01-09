@@ -1,0 +1,6 @@
+target
+.fastembed_cache
+.git
+*.db
+*.tmp
+*.zip

@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use axum::{
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, Path, State},
@@ -16,7 +16,7 @@ use axum::{
 };
 use minijinja::context;
 use serde::Deserialize;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use zerocopy::IntoBytes;
 
@@ -59,12 +59,18 @@ struct EditItem {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenvy::dotenv()?;
+    if dotenvy::dotenv().is_err() {
+        warn!(".env file not found, falling back to env variables");
+    }
+
+    if std::env::var("OPENAI_API_KEY").is_err() {
+        bail!("Environment variable: OPENAI_API_KEY not found");
+    }
 
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("{}=debug", env!("CARGO_CRATE_NAME")).into()),
+                .unwrap_or_else(|_| format!("{}=info", env!("CARGO_CRATE_NAME")).into()),
         )
         .with(tracing_forest::ForestLayer::default())
         .init();

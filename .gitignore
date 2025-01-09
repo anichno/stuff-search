@@ -10,3 +10,5 @@ Photos-001
 *.bak
 bootstrap_studio_generated/
 *.tmp
+*.tar
+*.gz
