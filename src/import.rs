@@ -27,12 +27,12 @@ pub struct ImportRequest {
 }
 
 pub struct Importer {
-    db_conn: Arc<Mutex<Database>>,
+    db_conn: Arc<Database>,
     queue: UnboundedSender<(i64, ImportRequest)>,
 }
 
 impl Importer {
-    pub async fn new(db: Arc<Mutex<Database>>) -> Self {
+    pub async fn new(db: Arc<Database>) -> Self {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         tokio::spawn(process_queue(db.clone(), rx));
         Self {
@@ -42,7 +42,7 @@ impl Importer {
     }
 
     pub fn add_to_queue(&self, request: ImportRequest) -> Result<()> {
-        let log_id = self.db_conn.lock().unwrap().log_new_import(
+        let log_id = self.db_conn.log_new_import(
             &request.source,
             "Added to queue",
             request.target_container,
@@ -101,16 +101,13 @@ impl From<ImageFileReader> for Vec<u8> {
     }
 }
 
-async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64, ImportRequest)>) {
+async fn process_queue(db: Arc<Database>, mut rx: UnboundedReceiver<(i64, ImportRequest)>) {
     // OpenAI Client
     let client = async_openai::Client::new();
 
     while let Some((log_id, request)) = rx.recv().await {
         info!("New file in queue");
-        db.lock()
-            .unwrap()
-            .update_import(log_id, "Starting")
-            .unwrap();
+        db.update_import(log_id, "Starting").unwrap();
         let mut image_queue: Vec<ImageFileReader> = Vec::new();
 
         // try to process as zip
@@ -221,25 +218,20 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
             if let Some(item_info) = openai_info.await.unwrap() {
                 let resized_small: Vec<u8> = resized_small.into();
                 let resized_large: Vec<u8> = resized_large.into();
-                db.lock()
-                    .unwrap()
-                    .insert_item(
-                        &item_info.name,
-                        &item_info.descriptions,
-                        &resized_small,
-                        &resized_large,
-                        request.target_container,
-                    )
-                    .unwrap();
+                db.insert_item(
+                    &item_info.name,
+                    &item_info.descriptions,
+                    &resized_small,
+                    &resized_large,
+                    request.target_container,
+                )
+                .unwrap();
             } else {
                 error!("Failed to import");
             }
         }
 
-        db.lock()
-            .unwrap()
-            .update_import(log_id, "Complete")
-            .unwrap();
+        db.update_import(log_id, "Complete").unwrap();
     }
 }
 

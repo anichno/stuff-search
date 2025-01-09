@@ -34,7 +34,7 @@ lazy_static::lazy_static! {
 }
 
 struct AppState {
-    database: Arc<Mutex<database::Database>>,
+    database: Arc<database::Database>,
     importer: Arc<Mutex<import::Importer>>,
 }
 
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
         .with(tracing_forest::ForestLayer::default())
         .init();
 
-    let db = Arc::new(Mutex::new(database::Database::init()?));
+    let db = Arc::new(database::Database::init()?);
     let importer = Arc::new(Mutex::new(import::Importer::new(db.clone()).await));
     let shared_state = Arc::new(AppState {
         database: db,
@@ -149,7 +149,7 @@ async fn search(
     Form(query): Form<HashMap<String, String>>,
 ) -> Html<String> {
     let results = if let Some(query) = query.get("search") {
-        match state.database.lock().unwrap().query(query) {
+        match state.database.query(query) {
             Ok(results) => results,
             Err(e) => {
                 error!("{}", e);
@@ -175,7 +175,7 @@ async fn small_photo(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Bytes, StatusCode> {
-    match state.database.lock().unwrap().get_small_image(id) {
+    match state.database.get_small_image(id) {
         Ok(image) => Ok(image.into()),
         Err(_) => Err(StatusCode::NOT_FOUND),
     }
@@ -185,7 +185,7 @@ async fn large_photo(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Bytes, StatusCode> {
-    match state.database.lock().unwrap().get_large_image(id) {
+    match state.database.get_large_image(id) {
         Ok(image) => Ok(image.into()),
         Err(_) => Err(StatusCode::NOT_FOUND),
     }
@@ -193,11 +193,11 @@ async fn large_photo(
 
 #[tracing::instrument]
 async fn container(State(state): State<Arc<AppState>>, Path(id): Path<i64>) -> Html<String> {
-    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = state.database.lock().unwrap().get_container_items(id) else {
+    let Ok(items) = state.database.get_container_items(id) else {
         return Html(String::from("Failed to retrieve items"));
     };
 
@@ -215,11 +215,11 @@ async fn container_create_child(
     State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Html<String> {
-    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = state.database.lock().unwrap().get_container_items(id) else {
+    let Ok(items) = state.database.get_container_items(id) else {
         return Html(String::from("Failed to retrieve items"));
     };
 
@@ -239,19 +239,15 @@ async fn create_container(
 ) -> Html<String> {
     state
         .database
-        .lock()
-        .unwrap()
         .add_child_container(&payload.new_container_name, payload.parent_container_id)
         .unwrap();
 
-    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
     let Ok(items) = state
         .database
-        .lock()
-        .unwrap()
         .get_container_items(payload.parent_container_id)
     else {
         return Html(String::from("Failed to retrieve items"));
@@ -271,12 +267,7 @@ async fn get_container_rename(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
 ) -> Html<String> {
-    let Ok(container_name) = state
-        .database
-        .lock()
-        .unwrap()
-        .get_container_name(container_id)
-    else {
+    let Ok(container_name) = state.database.get_container_name(container_id) else {
         return Html(String::from("Failed to fetch container name"));
     };
 
@@ -294,12 +285,7 @@ async fn get_container_rename_cancel(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
 ) -> Html<String> {
-    let Ok(container_name) = state
-        .database
-        .lock()
-        .unwrap()
-        .get_container_name(container_id)
-    else {
+    let Ok(container_name) = state.database.get_container_name(container_id) else {
         return Html(String::from("Failed to fetch container name"));
     };
 
@@ -320,24 +306,17 @@ async fn handle_container_rename(
 ) -> Html<String> {
     state
         .database
-        .lock()
-        .unwrap()
         .set_container_name(
             new_container_name.get("new_container_name").unwrap(),
             container_id,
         )
         .unwrap();
 
-    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = state
-        .database
-        .lock()
-        .unwrap()
-        .get_container_items(container_id)
-    else {
+    let Ok(items) = state.database.get_container_items(container_id) else {
         return Html(String::from("Failed to retrieve items"));
     };
 
@@ -357,12 +336,7 @@ async fn modal_upload(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
 ) -> Html<String> {
-    let Ok(container_name) = state
-        .database
-        .lock()
-        .unwrap()
-        .get_container_name(container_id)
-    else {
+    let Ok(container_name) = state.database.get_container_name(container_id) else {
         return Html(String::from("Failed to retrieve container"));
     };
 
@@ -406,12 +380,7 @@ async fn upload(State(state): State<Arc<AppState>>, mut multipart: Multipart) ->
     }
 
     if let (Some(container_id), Some(file)) = (container_id, file) {
-        let Ok(container_name) = state
-            .database
-            .lock()
-            .unwrap()
-            .get_container_name(container_id)
-        else {
+        let Ok(container_name) = state.database.get_container_name(container_id) else {
             return Html(String::from("Failed to retrieve container"));
         };
         if state
@@ -447,7 +416,7 @@ async fn modal_item_show(
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<i64>,
 ) -> Html<String> {
-    let Ok(item) = state.database.lock().unwrap().get_item(item_id) else {
+    let Ok(item) = state.database.get_item(item_id) else {
         return Html(String::from("Failed to retrieve item"));
     };
 
@@ -465,7 +434,7 @@ async fn get_modal_item_edit(
     State(state): State<Arc<AppState>>,
     Path(item_id): Path<i64>,
 ) -> Html<String> {
-    let Ok(item) = state.database.lock().unwrap().get_item(item_id) else {
+    let Ok(item) = state.database.get_item(item_id) else {
         return Html(String::from("Failed to retrieve item"));
     };
 
@@ -486,8 +455,6 @@ async fn handle_modal_item_edit(
 ) -> Html<String> {
     state
         .database
-        .lock()
-        .unwrap()
         .update_item(item_id, &edit_item.new_name, &edit_item.new_description)
         .unwrap();
 
@@ -514,28 +481,17 @@ async fn delete_item_unconfirmed(Path(item_id): Path<i64>) -> Html<String> {
 #[tracing::instrument]
 async fn delete_item(State(state): State<Arc<AppState>>, Path(item_id): Path<i64>) -> Html<String> {
     // get item container
-    let container_id = state
-        .database
-        .lock()
-        .unwrap()
-        .get_item(item_id)
-        .unwrap()
-        .container_id;
+    let container_id = state.database.get_item(item_id).unwrap().container_id;
 
     // do deletion
-    state.database.lock().unwrap().delete_item(item_id).unwrap();
+    state.database.delete_item(item_id).unwrap();
 
     // return relevant container page
-    let Ok(containers) = state.database.lock().unwrap().get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = state
-        .database
-        .lock()
-        .unwrap()
-        .get_container_items(container_id)
-    else {
+    let Ok(items) = state.database.get_container_items(container_id) else {
         return Html(String::from("Failed to retrieve items"));
     };
 
@@ -555,12 +511,7 @@ async fn delete_container_unconfirmed(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
 ) -> Html<String> {
-    let container_name = state
-        .database
-        .lock()
-        .unwrap()
-        .get_container_name(container_id)
-        .unwrap();
+    let container_name = state.database.get_container_name(container_id).unwrap();
 
     Html(
         TEMPLATES
@@ -576,16 +527,15 @@ async fn delete_container(
     State(state): State<Arc<AppState>>,
     Path(container_id): Path<i64>,
 ) -> Html<String> {
-    let database = state.database.lock().unwrap();
-    let container_parent = database.get_container_parent(container_id).unwrap();
+    let container_parent = state.database.get_container_parent(container_id).unwrap();
 
-    database.delete_container(container_id).unwrap();
+    state.database.delete_container(container_id).unwrap();
 
-    let Ok(containers) = database.get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = database.get_container_items(container_parent) else {
+    let Ok(items) = state.database.get_container_items(container_parent) else {
         return Html(String::from("Failed to retrieve items"));
     };
 
@@ -603,19 +553,17 @@ async fn move_item(
     State(state): State<Arc<AppState>>,
     Path((item_id, container_id)): Path<(i64, i64)>,
 ) -> Html<String> {
-    let database = state.database.lock().unwrap();
-
-    let current_container = database.get_item(item_id).unwrap().container_id;
+    let current_container = state.database.get_item(item_id).unwrap().container_id;
 
     if container_id != 1 {
-        database.move_item(item_id, container_id).unwrap();
+        state.database.move_item(item_id, container_id).unwrap();
     }
 
-    let Ok(containers) = database.get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = database.get_container_items(current_container) else {
+    let Ok(items) = state.database.get_container_items(current_container) else {
         return Html(String::from("Failed to retrieve items"));
     };
 
@@ -633,14 +581,16 @@ async fn move_container(
     State(state): State<Arc<AppState>>,
     Path((container_source_id, container_target_id)): Path<(i64, i64)>,
 ) -> Html<String> {
-    let database = state.database.lock().unwrap();
-
     if container_source_id != container_target_id {
-        let parent = database.get_container_parent(container_source_id).unwrap();
+        let parent = state
+            .database
+            .get_container_parent(container_source_id)
+            .unwrap();
 
         // check if target is child of this one
         let mut is_child = false;
-        let mut children = database
+        let mut children = state
+            .database
             .get_container_children(container_source_id)
             .unwrap();
         while let Some(child) = children.pop() {
@@ -648,24 +598,26 @@ async fn move_container(
                 is_child = true;
                 break;
             }
-            children.extend(database.get_container_children(child).unwrap());
+            children.extend(state.database.get_container_children(child).unwrap());
         }
 
         if is_child {
-            database
+            state
+                .database
                 .move_container(container_target_id, parent)
                 .unwrap();
         }
-        database
+        state
+            .database
             .move_container(container_source_id, container_target_id)
             .unwrap();
     }
 
-    let Ok(containers) = database.get_container_tree() else {
+    let Ok(containers) = state.database.get_container_tree() else {
         return Html(String::from("Failed to retrieve containers"));
     };
 
-    let Ok(items) = database.get_container_items(container_source_id) else {
+    let Ok(items) = state.database.get_container_items(container_source_id) else {
         return Html(String::from("Failed to retrieve items"));
     };
 

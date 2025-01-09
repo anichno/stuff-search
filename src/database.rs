@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, sync::Mutex};
 
 use anyhow::{bail, Result};
 use fastembed::TextEmbedding;
@@ -25,7 +25,7 @@ pub struct ContainerTree {
 }
 
 pub struct Database {
-    conn: rusqlite::Connection,
+    conn: std::sync::Mutex<rusqlite::Connection>,
     model: TextEmbedding,
 }
 
@@ -168,9 +168,13 @@ impl Database {
 
         let model = TextEmbedding::try_new(fastembed_opts)?;
 
-        Ok(Self { conn, model })
+        Ok(Self {
+            conn: Mutex::new(conn),
+            model,
+        })
     }
 
+    #[tracing::instrument(skip(description_statements))]
     fn insert_embeddings(
         &self,
         name: &str,
@@ -184,13 +188,13 @@ impl Database {
         embedding_docs.push(&full_description);
         let embeddings = self.model.embed(embedding_docs, None)?;
 
+        let conn = self.conn.lock().unwrap();
         for embedding in embeddings {
-            self.conn
-                .prepare("INSERT INTO vec_items(embedding) VALUES (?)")?
+            conn.prepare("INSERT INTO vec_items(embedding) VALUES (?)")?
                 .execute(rusqlite::params![embedding.as_bytes()])?;
-            let embedding_id = self.conn.last_insert_rowid();
+            let embedding_id = conn.last_insert_rowid();
 
-            self.conn.execute(
+            conn.execute(
                 "INSERT INTO embedding_to_item(embedding_id, item_id) VALUES(?,?)",
                 [embedding_id, item_id],
             )?;
@@ -208,11 +212,12 @@ impl Database {
         large_photo: &[u8],
         contained_by: i64,
     ) -> Result<()> {
-        self.conn
-            .prepare(
+        let item_id = {
+            let conn: std::sync::MutexGuard<'_, rusqlite::Connection> = self.conn.lock().unwrap();
+            conn.prepare(
                 r#"INSERT INTO 
-                    Items(name, description, small_photo, large_photo, contained_by)
-                    VALUES (?,?,?,?,?)"#,
+                        Items(name, description, small_photo, large_photo, contained_by)
+                        VALUES (?,?,?,?,?)"#,
             )?
             .execute(rusqlite::params![
                 name,
@@ -222,7 +227,9 @@ impl Database {
                 contained_by
             ])?;
 
-        let item_id = self.conn.last_insert_rowid();
+            conn.last_insert_rowid()
+        };
+
         self.insert_embeddings(
             name,
             &description
@@ -254,8 +261,8 @@ impl Database {
             std::time::Instant::now().duration_since(start).as_millis()
         );
 
-        let embedding_result: Vec<(i64, f64)> = self
-            .conn
+        let conn = self.conn.lock().unwrap();
+        let embedding_result: Vec<(i64, f64)> = conn
             .prepare(
                 r#"
                     SELECT
@@ -275,7 +282,7 @@ impl Database {
         let mut item_ids = Vec::new();
         let mut item_hits = HashMap::new();
         for (embedding_id, _distance) in embedding_result {
-            let item_id: i64 = self.conn.query_row(
+            let item_id: i64 = conn.query_row(
                 "SELECT item_id FROM embedding_to_item WHERE embedding_id = ?",
                 [embedding_id],
                 |row| Ok(row.get(0)),
@@ -299,7 +306,7 @@ impl Database {
 
         let mut item_results = Vec::new();
         for item_id in item_ids {
-            let result: QueryResult = self.conn.query_row("SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.id = ?", [item_id], |row| Ok(serde_rusqlite::from_row(row).unwrap()))?;
+            let result: QueryResult = conn.query_row("SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.id = ?", [item_id], |row| Ok(serde_rusqlite::from_row(row).unwrap()))?;
             item_results.push(ItemResult {
                 id: result.id,
                 name: result.name,
@@ -315,8 +322,8 @@ impl Database {
 
     #[tracing::instrument]
     pub fn log_new_import(&self, source: &str, status: &str, target_container: i64) -> Result<i64> {
-        let mut stmt = self
-            .conn
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
             .prepare("INSERT INTO import_log(source, status, target_container) VALUES (?,?,?)")?;
         stmt.execute(rusqlite::params![
             source.as_bytes(),
@@ -324,26 +331,26 @@ impl Database {
             target_container
         ])?;
 
-        Ok(self.conn.last_insert_rowid())
+        Ok(conn.last_insert_rowid())
     }
 
     #[tracing::instrument]
     pub fn cancel_import(&self, import_id: i64, reason: Option<&str>) -> Result<()> {
         let reason = reason.unwrap_or("FAILED");
-        let mut stmt = self
-            .conn
-            .prepare(r#"UPDATE import_log SET status = ? where id = ?"#)?;
-        stmt.execute(rusqlite::params![reason, import_id])?;
+        self.conn.lock().unwrap().execute(
+            r#"UPDATE import_log SET status = ? where id = ?"#,
+            rusqlite::params![reason, import_id],
+        )?;
 
         Ok(())
     }
 
     #[tracing::instrument]
     pub fn update_import(&self, import_id: i64, status: &str) -> Result<()> {
-        let mut stmt = self
-            .conn
-            .prepare(r#"UPDATE import_log SET status = ? where id = ?"#)?;
-        stmt.execute(rusqlite::params![status.as_bytes(), import_id])?;
+        self.conn.lock().unwrap().execute(
+            r#"UPDATE import_log SET status = ? where id = ?"#,
+            rusqlite::params![status.as_bytes(), import_id],
+        )?;
 
         Ok(())
     }
@@ -352,6 +359,8 @@ impl Database {
     pub fn get_small_image(&self, item_id: i64) -> Result<Vec<u8>> {
         let image: Vec<u8> = self
             .conn
+            .lock()
+            .unwrap()
             .prepare("SELECT small_photo FROM Items where id = ?")?
             .query_row([item_id], |row| Ok(row.get(0)))??;
 
@@ -362,6 +371,8 @@ impl Database {
     pub fn get_large_image(&self, item_id: i64) -> Result<Vec<u8>> {
         let image: Vec<u8> = self
             .conn
+            .lock()
+            .unwrap()
             .prepare("SELECT large_photo FROM Items where id = ?")?
             .query_row([item_id], |row| Ok(row.get(0)))??;
 
@@ -373,6 +384,8 @@ impl Database {
         let mut containers: HashMap<i64, Vec<ContainerRow>> = HashMap::new();
         let mut root = None;
         self.conn
+            .lock()
+            .unwrap()
             .prepare("SELECT id, name, location, contained_by FROM containers")?
             .query_map([], |row| {
                 Ok(ContainerRow {
@@ -412,6 +425,8 @@ impl Database {
     pub fn get_container_items(&self, container_id: i64) -> Result<Vec<ItemResult>> {
         let mut item_results = Vec::new();
         self.conn
+            .lock()
+            .unwrap()
             .prepare("SELECT id, name, description FROM Items WHERE contained_by = ?")?
             .query_map([container_id], |row| {
                 Ok(ItemResult {
@@ -436,6 +451,8 @@ impl Database {
     pub fn get_container_name(&self, container_id: i64) -> Result<String> {
         let name: String = self
             .conn
+            .lock()
+            .unwrap()
             .prepare("SELECT name FROM containers WHERE id = ?")?
             .query_row([container_id], |row| Ok(row.get(0)))??;
 
@@ -445,6 +462,8 @@ impl Database {
     #[tracing::instrument]
     pub fn set_container_name(&self, container_name: &str, container_id: i64) -> Result<()> {
         self.conn
+            .lock()
+            .unwrap()
             .prepare("UPDATE containers SET name = ? WHERE id = ?")?
             .execute(rusqlite::params![container_name, container_id])?;
 
@@ -455,6 +474,8 @@ impl Database {
     pub fn get_container_parent(&self, container_id: i64) -> Result<i64> {
         let parent: i64 = self
             .conn
+            .lock()
+            .unwrap()
             .prepare("SELECT contained_by FROM containers WHERE id = ?")?
             .query_row([container_id], |row| Ok(row.get(0)))??;
 
@@ -466,6 +487,8 @@ impl Database {
         let mut children = Vec::new();
         for child_row in serde_rusqlite::from_rows::<i64>(
             self.conn
+                .lock()
+                .unwrap()
                 .prepare("SELECT id FROM containers WHERE contained_by = ?")?
                 .query([container_id])?,
         )
@@ -490,6 +513,8 @@ impl Database {
 
             // Do deletion of this container, now that it has no items and we know its children
             self.conn
+                .lock()
+                .unwrap()
                 .prepare("DELETE FROM containers WHERE id = ?")?
                 .execute([cur_container_id])?;
         }
@@ -499,10 +524,10 @@ impl Database {
 
     #[tracing::instrument]
     pub fn add_child_container(&self, name: &str, parent_id: i64) -> Result<()> {
-        let mut stmt = self
-            .conn
-            .prepare("INSERT INTO containers(name, contained_by) VALUES (?,?)")?;
-        stmt.execute(rusqlite::params![name, parent_id,])?;
+        self.conn.lock().unwrap().execute(
+            "INSERT INTO containers(name, contained_by) VALUES (?,?)",
+            rusqlite::params![name, parent_id,],
+        )?;
 
         Ok(())
     }
@@ -510,6 +535,8 @@ impl Database {
     #[tracing::instrument]
     pub fn move_container(&self, container_source_id: i64, container_target_id: i64) -> Result<()> {
         self.conn
+            .lock()
+            .unwrap()
             .prepare("UPDATE containers SET contained_by = ? where id = ?")?
             .execute([container_target_id, container_source_id])?;
 
@@ -528,7 +555,7 @@ impl Database {
         }
 
         let result = self
-                .conn
+                .conn.lock().unwrap()
                 .prepare(
                     "SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.id = ?",
                 )?.query_row([item_id], |row| Ok(serde_rusqlite::from_row::<QueryResult>(row).unwrap()))?;
@@ -552,18 +579,21 @@ impl Database {
 
         // update item record
         self.conn
+            .lock()
+            .unwrap()
             .prepare("UPDATE Items SET name = ?, description = ? WHERE id = ?")?
             .execute(rusqlite::params![item_name, item_description, item_id])?;
 
         Ok(())
     }
 
+    #[tracing::instrument]
     fn delete_embeddings_for_item(&self, item_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
         // get related embedding_ids
         let mut embedding_ids = Vec::new();
         for embedding_id in serde_rusqlite::from_rows::<i64>(
-            self.conn
-                .prepare("SELECT embedding_id FROM embedding_to_item where item_id = ?")?
+            conn.prepare("SELECT embedding_id FROM embedding_to_item where item_id = ?")?
                 .query([item_id])?,
         ) {
             if let Ok(embedding_id) = embedding_id {
@@ -573,13 +603,11 @@ impl Database {
 
         for embedding_id in embedding_ids {
             // delete embedding
-            self.conn
-                .prepare("DELETE FROM vec_items where rowid = ?")?
+            conn.prepare("DELETE FROM vec_items where rowid = ?")?
                 .execute(rusqlite::params![embedding_id])?;
         }
 
-        self.conn
-            .prepare("DELETE FROM embedding_to_item where item_id = ?")?
+        conn.prepare("DELETE FROM embedding_to_item where item_id = ?")?
             .execute(rusqlite::params![item_id])?;
 
         Ok(())
@@ -591,6 +619,8 @@ impl Database {
 
         // delete item
         self.conn
+            .lock()
+            .unwrap()
             .prepare("DELETE FROM Items where id = ?")?
             .execute(rusqlite::params![item_id])?;
 
@@ -600,6 +630,8 @@ impl Database {
     #[tracing::instrument]
     pub fn move_item(&self, item_id: i64, container_id: i64) -> Result<()> {
         self.conn
+            .lock()
+            .unwrap()
             .prepare("UPDATE Items SET contained_by = ? where id = ?")?
             .execute([container_id, item_id])?;
 
