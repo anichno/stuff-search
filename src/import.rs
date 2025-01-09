@@ -55,6 +55,7 @@ struct ImageFileReader(Mutex<std::fs::File>);
 
 impl ImageFileReader {
     fn new(mut file: std::fs::File) -> Result<Self> {
+        file.seek(std::io::SeekFrom::Start(0)).unwrap();
         let photo_file_buffered = BufReader::new(file.try_clone().unwrap());
 
         if let Ok(image_reader) = image::ImageReader::new(photo_file_buffered).with_guessed_format()
@@ -70,18 +71,15 @@ impl ImageFileReader {
         }
     }
     fn to_image(&self) -> DynamicImage {
-        let inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock().unwrap();
+        inner.seek(std::io::SeekFrom::Start(0)).unwrap();
         let buf_reader = BufReader::new(inner.try_clone().unwrap());
         let image = image::ImageReader::new(buf_reader)
             .with_guessed_format()
             .unwrap()
             .decode()
             .unwrap();
-        inner
-            .try_clone()
-            .unwrap()
-            .seek(std::io::SeekFrom::Start(0))
-            .unwrap();
+        inner.seek(std::io::SeekFrom::Start(0)).unwrap();
 
         image
     }
@@ -151,7 +149,7 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
             // try to process as image
             match ImageFileReader::new(request.file) {
                 Ok(photo_file) => image_queue.push(photo_file),
-                Err(e) => error!("{}", e.to_string()),
+                Err(e) => error!("Single image {}", e.to_string()),
             }
         }
 
@@ -196,11 +194,17 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
                 info!("Starting openai request {}", i + 1);
                 let mut item_info = None;
                 for retry in 0..10 {
-                    if let Ok(info) = get_description(&client, &photo_b64).await {
-                        item_info = Some(info);
-                        break;
+                    match get_description(&client, &photo_b64).await {
+                        Ok(info) => {
+                            item_info = Some(info);
+                            break;
+                        }
+                        Err(e) => error!(
+                            "OpenAI request failed, retry {} of 10. Msg: {}",
+                            retry + 1,
+                            e.to_string()
+                        ),
                     }
-                    error!("OpenAI request failed, retry {} of 10", retry + 1);
                     tokio::time::sleep(Duration::from_secs(10)).await;
                 }
 
@@ -221,7 +225,7 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
                     .unwrap()
                     .insert_item(
                         &item_info.name,
-                        &item_info.description,
+                        &item_info.descriptions,
                         &resized_small,
                         &resized_large,
                         request.target_container,
@@ -242,7 +246,7 @@ async fn process_queue(db: Arc<Mutex<Database>>, mut rx: UnboundedReceiver<(i64,
 #[derive(Debug, Deserialize, Serialize)]
 struct ItemInfo {
     name: String,
-    description: String,
+    descriptions: Vec<String>,
 }
 
 async fn get_description(
@@ -256,14 +260,17 @@ async fn get_description(
             "type": "string",
             "description": "The name of the object."
         },
-        "description": {
-            "type": "string",
-            "description": "A brief description of what the object is."
+        "descriptions": {
+            "type": "array",
+            "items": {
+                "type": "string",
+            },
+            "description": "A series of statements giving a full and detailed description of what you see in this image, including all text you can read."
         }
         },
         "required": [
         "name",
-        "description"
+        "descriptions"
         ],
         "additionalProperties": false
     });
@@ -279,7 +286,7 @@ async fn get_description(
 
     let  request = CreateChatCompletionRequestArgs::default()
         .model("gpt-4o-mini")
-        .max_tokens(600_u32)
+        .max_tokens(1000_u32)
         .messages([ChatCompletionRequestSystemMessage::from(
             "You are a helpful item identifier and describer. You always respond in valid JSON.",
         )
@@ -291,7 +298,7 @@ async fn get_description(
                     .build()?
                     .into(),
                 ChatCompletionRequestMessageContentPartTextArgs::default()
-                    .text("Please give a full description of what you see in this image. Do not mention the background or any human hands.")
+                    .text("Please give a full and detailed description of what you see in this image. Include all text you can read. Give the description as a series of statements. Do not mention the background or any human hands.")
                     .build()?
                     .into(),
                 ChatCompletionRequestMessageContentPartImageArgs::default()
@@ -311,7 +318,7 @@ async fn get_description(
     let response = client.chat().create(request).await?;
 
     let item_info: ItemInfo =
-        serde_json::from_str(&response.choices[0].message.content.clone().unwrap())?;
+        serde_json::from_str(&response.choices[0].message.content.clone().unwrap()).unwrap();
 
     Ok(item_info)
 }

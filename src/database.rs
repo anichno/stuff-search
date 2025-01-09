@@ -76,7 +76,6 @@ impl Database {
                             "description"	TEXT NOT NULL,
                             "small_photo"	BLOB NOT NULL,
                             "large_photo"	BLOB NOT NULL,
-                            "embedding_id"	INTEGER NOT NULL UNIQUE,
                             "contained_by"  INTEGER NOT NULL,
                             PRIMARY KEY("id" AUTOINCREMENT)
                         )"#,
@@ -95,19 +94,22 @@ impl Database {
             )?;
 
             conn.execute(
+                r#"CREATE TABLE "embedding_to_item" (
+                            "id"	INTEGER NOT NULL UNIQUE,
+                            "embedding_id"	INTEGER NOT NULL,
+                            "item_id"	INTEGER NOT NULL,
+                            PRIMARY KEY("id" AUTOINCREMENT)
+                        )"#,
+                [],
+            )?;
+
+            conn.execute(
                 r#"CREATE TABLE "import_log" (
                             "id"	INTEGER NOT NULL UNIQUE,
                             "source"	TEXT NOT NULL,
                             "status"	TEXT NOT NULL,
                             "target_container"	INTEGER NOT NULL,
                             PRIMARY KEY("id" AUTOINCREMENT)
-                        );"#,
-                [],
-            )?;
-
-            conn.execute(
-                r#"CREATE INDEX "idx_embedding_id" ON "Items" (
-                            "embedding_id"
                         );"#,
                 [],
             )?;
@@ -123,6 +125,20 @@ impl Database {
                 r#"CREATE INDEX "idx_container_container" ON "containers" (
                             "contained_by"
                         );"#,
+                [],
+            )?;
+
+            conn.execute(
+                r#"CREATE INDEX "idx_embedding_to_item_item_id" ON "embedding_to_item" (
+                            "item_id"
+                        )"#,
+                [],
+            )?;
+
+            conn.execute(
+                r#"CREATE INDEX "idx_embedding_to_item_embedding_id" ON "embedding_to_item" (
+                            "embedding_id"
+                        )"#,
                 [],
             )?;
 
@@ -146,31 +162,66 @@ impl Database {
         Ok(Self { conn, model })
     }
 
+    fn insert_embeddings(
+        &self,
+        name: &str,
+        description_statements: &[&str],
+        item_id: i64,
+    ) -> Result<()> {
+        let mut embedding_docs = vec![name];
+        embedding_docs.extend_from_slice(description_statements);
+
+        let full_description = description_statements.join("\n");
+        embedding_docs.push(&full_description);
+        let embeddings = self.model.embed(embedding_docs, None)?;
+
+        for embedding in embeddings {
+            self.conn
+                .prepare("INSERT INTO vec_items(embedding) VALUES (?)")?
+                .execute(rusqlite::params![embedding.as_bytes()])?;
+            let embedding_id = self.conn.last_insert_rowid();
+
+            self.conn.execute(
+                "INSERT INTO embedding_to_item(embedding_id, item_id) VALUES(?,?)",
+                [embedding_id, item_id],
+            )?;
+        }
+
+        Ok(())
+    }
+
     #[tracing::instrument(skip(small_photo, large_photo))]
     pub fn insert_item(
         &self,
         name: &str,
-        description: &str,
+        description: &[String],
         small_photo: &[u8],
         large_photo: &[u8],
         contained_by: i64,
     ) -> Result<()> {
-        let embedding = self
-            .model
-            .embed(vec![format!("{}\n{}", name, description)], None)?
-            .pop()
-            .unwrap();
+        self.conn
+            .prepare(
+                r#"INSERT INTO 
+                    Items(name, description, small_photo, large_photo, contained_by)
+                    VALUES (?,?,?,?,?)"#,
+            )?
+            .execute(rusqlite::params![
+                name,
+                description.join("\n"),
+                small_photo.as_bytes(),
+                large_photo.as_bytes(),
+                contained_by
+            ])?;
 
-        let mut stmt = self
-            .conn
-            .prepare("INSERT INTO vec_items(embedding) VALUES (?)")?;
-        stmt.execute(rusqlite::params![embedding.as_bytes()])?;
-        let last_id = self.conn.last_insert_rowid();
-
-        self.conn.prepare(r#"INSERT INTO 
-                                    Items(name, description, small_photo, large_photo, embedding_id, contained_by)
-                                    VALUES (?,?,?,?,?,?)"#)?
-                                    .execute(rusqlite::params![name, description, small_photo.as_bytes(), large_photo.as_bytes(), last_id, contained_by])?;
+        let item_id = self.conn.last_insert_rowid();
+        self.insert_embeddings(
+            name,
+            &description
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<&str>>(),
+            item_id,
+        )?;
 
         Ok(())
     }
@@ -204,13 +255,29 @@ impl Database {
                     FROM vec_items
                     WHERE embedding MATCH ?1
                     ORDER BY distance
-                    LIMIT 30
+                    LIMIT 100
                     "#,
             )?
             .query_map([query_embedding.as_bytes()], |r| {
                 anyhow::Result::Ok((r.get(0)?, r.get(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
+
+        let mut item_ids = Vec::new();
+        let mut item_hits = HashMap::new();
+        for (embedding_id, _distance) in embedding_result {
+            let item_id: i64 = self.conn.query_row(
+                "SELECT item_id FROM embedding_to_item WHERE embedding_id = ?",
+                [embedding_id],
+                |row| Ok(row.get(0)),
+            )??;
+            if !item_hits.contains_key(&item_id) {
+                item_ids.push(item_id);
+            }
+            *item_hits.entry(item_id).or_insert(0) += 1;
+        }
+        let mut item_hits: Vec<(i64, i64)> = item_hits.iter().map(|(k, v)| (*k, *v)).collect();
+        item_hits.sort_by(|a, b| a.1.cmp(&b.1).reverse());
 
         #[derive(Debug, Deserialize)]
         struct QueryResult {
@@ -222,22 +289,16 @@ impl Database {
         }
 
         let mut item_results = Vec::new();
-        for (embedding_id, distance) in embedding_result {
-            let result = self
-                .conn
-                .prepare(
-                    "SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.embedding_id = ?",
-                )?.query_row([embedding_id], |row| Ok(serde_rusqlite::from_row::<QueryResult>(row).unwrap()))?;
-
-            let item = ItemResult {
+        for item_id in item_ids {
+            let result: QueryResult = self.conn.query_row("SELECT a.id, a.name, a.description, a.contained_by, b.name as container_name FROM Items a JOIN containers b ON a.contained_by = b.id WHERE a.id = ?", [item_id], |row| Ok(serde_rusqlite::from_row(row).unwrap()))?;
+            item_results.push(ItemResult {
                 id: result.id,
                 name: result.name,
                 description: result.description,
-                similarity: distance,
+                similarity: 0.0,
                 container_name: result.container_name,
                 container_id: result.contained_by,
-            };
-            item_results.push(item);
+            });
         }
 
         Ok(item_results)
@@ -475,23 +536,10 @@ impl Database {
 
     #[tracing::instrument]
     pub fn update_item(&self, item_id: i64, item_name: &str, item_description: &str) -> Result<()> {
-        // new embedding
-        let embedding = self
-            .model
-            .embed(vec![format!("{}\n{}", item_name, item_description)], None)?
-            .pop()
-            .unwrap();
+        self.delete_embeddings_for_item(item_id)?;
 
-        // get related embedding_id
-        let embedding_id: i64 = self
-            .conn
-            .prepare("SELECT embedding_id FROM Items where id = ?")?
-            .query_row([item_id], |row| Ok(row.get(0)))??;
-
-        // update embedding
-        self.conn
-            .prepare("UPDATE vec_items SET embedding = ? where rowid = ?")?
-            .execute(rusqlite::params![embedding.as_bytes(), embedding_id])?;
+        let description_statements: Vec<&str> = item_description.split("\n").collect();
+        self.insert_embeddings(item_name, &description_statements, item_id)?;
 
         // update item record
         self.conn
@@ -501,18 +549,36 @@ impl Database {
         Ok(())
     }
 
+    fn delete_embeddings_for_item(&self, item_id: i64) -> Result<()> {
+        // get related embedding_ids
+        let mut embedding_ids = Vec::new();
+        for embedding_id in serde_rusqlite::from_rows::<i64>(
+            self.conn
+                .prepare("SELECT embedding_id FROM embedding_to_item where item_id = ?")?
+                .query([item_id])?,
+        ) {
+            if let Ok(embedding_id) = embedding_id {
+                embedding_ids.push(embedding_id);
+            }
+        }
+
+        for embedding_id in embedding_ids {
+            // delete embedding
+            self.conn
+                .prepare("DELETE FROM vec_items where rowid = ?")?
+                .execute(rusqlite::params![embedding_id])?;
+        }
+
+        self.conn
+            .prepare("DELETE FROM embedding_to_item where item_id = ?")?
+            .execute(rusqlite::params![item_id])?;
+
+        Ok(())
+    }
+
     #[tracing::instrument]
     pub fn delete_item(&self, item_id: i64) -> Result<()> {
-        // get related embedding_id
-        let embedding_id: i64 = self
-            .conn
-            .prepare("SELECT embedding_id FROM Items where id = ?")?
-            .query_row([item_id], |row| Ok(row.get(0)))??;
-
-        // delete embedding
-        self.conn
-            .prepare("DELETE FROM vec_items where rowid = ?")?
-            .execute(rusqlite::params![embedding_id])?;
+        self.delete_embeddings_for_item(item_id)?;
 
         // delete item
         self.conn
