@@ -75,7 +75,9 @@ async fn main() -> Result<()> {
         .with(tracing_forest::ForestLayer::default())
         .init();
 
+    info!("Initializing Database");
     let db = Arc::new(database::Database::init()?);
+
     let importer = Arc::new(Mutex::new(import::Importer::new(db.clone()).await));
     let shared_state = Arc::new(AppState {
         database: db,

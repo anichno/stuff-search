@@ -39,7 +39,11 @@ For a video based overview, see: https://youtu.be/ZvqfHi6xzdI?si=gtEN__ZRWj766VC
 ### Basic Usage
 - To start the application:
   ```bash
-  docker run -it --rm -e OPENAI_API_KEY=<api_key_here> -v `pwd`/data:/data -v `pwd`/cache:/cache stuff-search
+  docker run -it --rm -e OPENAI_API_KEY=<api_key_here> -v `pwd`/data:/data -v `pwd`/cache:/cache -p 8080:8080 stuff-search
+  ```
+- Alternatively fill out OPENAI_API_KEY in `docker-compose.yml`, then:
+  ```bash
+  docker compose up
   ```
 
 ## Contributing

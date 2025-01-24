@@ -1,0 +1,15 @@
+name: stuff-search
+services:
+    stuff-search:
+        environment:
+            - OPENAI_API_KEY=<put_api_key_here>
+        volumes:
+            - data:/data
+            - cache:/cache
+        ports:
+            - 8080:8080
+        image: stuff-search
+
+volumes:
+    data:
+    cache:
